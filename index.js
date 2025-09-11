@@ -1,21 +1,14 @@
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, Partials } = require("discord.js");
 const express = require("express");
-const app = express();
-
 const path = require('path');
-app.use(express.static(path.join(__dirname)));
-
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html')); // nebo webIndex.html
 });
-
-
-app.use(express.json());
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,      // pro čtení zpráv
+    GatewayIntentBits.MessageContent      // pro obsah zpráv
   ],
 });
 
@@ -44,6 +37,13 @@ app.listen(PORT, () => console.log(`Web API běží na portu ${PORT}`));
 
 client.once("ready", () => {
   console.log(`Bot online jako ${client.user.tag}`);
+});
+
+// --- PŘÍKAZ ---
+client.on('messageCreate', message => {
+  if (message.content.toLowerCase() === 'm! sac') {
+    message.channel.send('🍀 SAC MYCHAL 🍀');
+  }
 });
 
 client.login(TOKEN).catch(err => console.error("Chyba při loginu bota:", err));
