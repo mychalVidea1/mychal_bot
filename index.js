@@ -2,6 +2,14 @@ const { Client, GatewayIntentBits } = require("discord.js");
 const express = require("express");
 const app = express();
 
+const path = require('path');
+app.use(express.static(path.join(__dirname)));
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html')); // nebo webIndex.html
+});
+
+
 app.use(express.json());
 
 const client = new Client({
