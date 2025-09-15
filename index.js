@@ -1,6 +1,5 @@
 require('dotenv').config();
 
-// Přidali jsme 'PermissionsBitField' pro kontrolu oprávnění
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 
@@ -17,11 +16,9 @@ const client = new Client({
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 
-// Cesta k permanentnímu úložišti
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
 
-// Zkontrolujeme, jestli existuje složka pro data. Pokud ne, vytvoříme ji.
 if (!fs.existsSync(dataDirectory)) {
     fs.mkdirSync(dataDirectory);
     console.log(`Úspěšně vytvořena permanentní složka: ${dataDirectory}`);
@@ -45,7 +42,6 @@ function saveRatings() {
     }
 }
 
-// Používáme nový, správný název události 'clientReady'
 client.once('clientReady', () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
 });
@@ -57,10 +53,7 @@ client.on('messageCreate', async message => {
     const command = args.shift().toLowerCase();
 
     if (command === 'rate') {
-        // ===== KONTROLA OPRÁVNĚNÍ ZDE =====
-        // Zkontrolujeme, jestli má autor zprávy práva administrátora
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            // Pokud nemá, pošleme zprávu a ukončíme provádění příkazu
             return message.channel.send('K tomuto příkazu nemáš oprávnění. Pouze pro administrátory.');
         }
 
@@ -102,7 +95,7 @@ client.on('messageCreate', async message => {
     }
 
     if (command === 'score') {
-        // Tento příkaz může použít kdokoliv
+        // Případ 1: Chceme žebříček všech
         if (message.mentions.everyone) {
             const userIds = Object.keys(ratings);
 
@@ -141,14 +134,30 @@ client.on('messageCreate', async message => {
             return message.channel.send({ embeds: [scoreEmbed] });
         }
 
-        const user = message.mentions.users.first();
-        if (!user) return message.channel.send('Musíš označit uživatele nebo použít `@everyone`.');
+        // ===== ZMĚNA ZDE =====
+        // Případ 2: Chceme skóre jednoho uživatele (buď zmíněného, nebo autora zprávy)
+        
+        // Pokud je někdo zmíněn, bude to on. Pokud ne, bude to autor zprávy.
+        const targetUser = message.mentions.users.first() || message.author;
 
-        const userRatings = ratings[user.id];
-        if (!userRatings || userRatings.length === 0) return message.channel.send(`Uživatel <@${user.id}> ještě nemá žádné hodnocení.`);
+        const userRatings = ratings[targetUser.id];
+        if (!userRatings || userRatings.length === 0) {
+            // Zpráva se liší podle toho, jestli se ptáme na sebe, nebo na někoho jiného
+            if (targetUser.id === message.author.id) {
+                return message.channel.send(`Zatím nemáš žádné hodnocení.`);
+            } else {
+                return message.channel.send(`Uživatel <@${targetUser.id}> ještě nemá žádné hodnocení.`);
+            }
+        }
 
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
-        return message.channel.send(`Uživatel <@${user.id}> má průměrné hodnocení: **${averageRating.toFixed(2)}** / 10`);
+        
+        // Zpráva se opět liší
+        if (targetUser.id === message.author.id) {
+            return message.channel.send(`Tvé průměrné hodnocení je: **${averageRating.toFixed(2)}** / 10`);
+        } else {
+            return message.channel.send(`Uživatel <@${targetUser.id}> má průměrné hodnocení: **${averageRating.toFixed(2)}** / 10`);
+        }
     }
 });
 
