@@ -16,19 +16,32 @@ const client = new Client({
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 
+// ===== ZMĚNA ZAČÍNÁ ZDE =====
+// 1. Definujeme cestu k souboru v permanentním úložišti (Volume)
+const ratingsFilePath = '/data/ratings.json';
+
 let ratings = {};
 try {
-    const data = fs.readFileSync('ratings.json', 'utf8');
+    // 2. Čteme soubor z nové, permanentní cesty
+    const data = fs.readFileSync(ratingsFilePath, 'utf8');
     ratings = JSON.parse(data);
+    console.log('Hodnocení úspěšně načteno z permanentního úložiště.');
 } catch (err) {
-    console.log('Soubor s hodnocením nebyl nalezen, bude vytvořen nový.');
+    // Pokud soubor neexistuje, nevadí, vytvoří se při prvním hodnocení
+    console.log('Soubor s hodnocením nebyl v permanentním úložišti nalezen, bude vytvořen nový.');
 }
 
 function saveRatings() {
-    fs.writeFileSync('ratings.json', JSON.stringify(ratings, null, 2), (err) => {
-        if (err) console.error('Chyba při ukládání hodnocení:', err);
-    });
+    try {
+        // 3. Ukládáme soubor na novou, permanentní cestu
+        fs.writeFileSync(ratingsFilePath, JSON.stringify(ratings, null, 2));
+        console.log('Hodnocení bylo úspěšně uloženo do permanentního úložiště.');
+    } catch (err) {
+        console.error('CHYBA: Nepodařilo se uložit hodnocení do permanentního úložiště!', err);
+    }
 }
+// ===== ZMĚNA KONČÍ ZDE =====
+
 
 client.once('ready', () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
@@ -49,7 +62,7 @@ client.on('messageCreate', async message => {
         
         if (!ratings[user.id]) ratings[user.id] = [];
         ratings[user.id].push(rating);
-        saveRatings();
+        saveRatings(); // Tato funkce nyní ukládá do Volume
         
         const userRatings = ratings[user.id];
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
@@ -82,9 +95,6 @@ client.on('messageCreate', async message => {
     }
 
     if (command === 'score') {
-        // =========================================================
-        // VYLEPŠENÝ KÓD PRO 'm!score @everyone'
-        // =========================================================
         if (message.mentions.everyone) {
             const userIds = Object.keys(ratings);
 
@@ -99,25 +109,22 @@ client.on('messageCreate', async message => {
             });
 
             const scoreEmbed = new EmbedBuilder()
-                .setColor('#FFD700') // Zlatá barva
+                .setColor('#FFD700')
                 .setTitle('🏆 Průměrné hodnocení všech uživatelů')
                 .setTimestamp();
             
             let description = '';
-            // Použijeme for...of cyklus, abychom mohli správně použít 'await'
             for (const userId of userIds) {
                 const userRatings = ratings[userId];
                 const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
                 
-                let roleIndicator = ''; // Indikátor role, defaultně prázdný
+                let roleIndicator = '';
                 try {
-                    // Zkusíme načíst člena serveru, abychom zkontrolovali jeho role
                     const member = await message.guild.members.fetch(userId);
                     if (member && member.roles.cache.has(roleId)) {
-                        roleIndicator = ' 🏆'; // Pokud má roli, přidáme ikonu
+                        roleIndicator = ' 🏆';
                     }
                 } catch (error) {
-                    // Pokud uživatel není na serveru, nic se nestane, ikona se nepřidá
                     console.log(`Nepodařilo se načíst člena ${userId}, pravděpodobně opustil server.`);
                 }
                 
