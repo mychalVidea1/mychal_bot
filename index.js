@@ -1,6 +1,7 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.js');
+// Přidali jsme 'PermissionsBitField' pro kontrolu oprávnění
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 
 const client = new Client({
@@ -16,34 +17,36 @@ const client = new Client({
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 
-// ===== ZMĚNA ZAČÍNÁ ZDE =====
-// 1. Definujeme cestu k souboru v permanentním úložišti (Volume)
-const ratingsFilePath = '/data/ratings.json';
+// Cesta k permanentnímu úložišti
+const dataDirectory = '/data';
+const ratingsFilePath = `${dataDirectory}/ratings.json`;
+
+// Zkontrolujeme, jestli existuje složka pro data. Pokud ne, vytvoříme ji.
+if (!fs.existsSync(dataDirectory)) {
+    fs.mkdirSync(dataDirectory);
+    console.log(`Úspěšně vytvořena permanentní složka: ${dataDirectory}`);
+}
 
 let ratings = {};
 try {
-    // 2. Čteme soubor z nové, permanentní cesty
     const data = fs.readFileSync(ratingsFilePath, 'utf8');
     ratings = JSON.parse(data);
     console.log('Hodnocení úspěšně načteno z permanentního úložiště.');
 } catch (err) {
-    // Pokud soubor neexistuje, nevadí, vytvoří se při prvním hodnocení
     console.log('Soubor s hodnocením nebyl v permanentním úložišti nalezen, bude vytvořen nový.');
 }
 
 function saveRatings() {
     try {
-        // 3. Ukládáme soubor na novou, permanentní cestu
         fs.writeFileSync(ratingsFilePath, JSON.stringify(ratings, null, 2));
         console.log('Hodnocení bylo úspěšně uloženo do permanentního úložiště.');
     } catch (err) {
         console.error('CHYBA: Nepodařilo se uložit hodnocení do permanentního úložiště!', err);
     }
 }
-// ===== ZMĚNA KONČÍ ZDE =====
 
-
-client.once('ready', () => {
+// Používáme nový, správný název události 'clientReady'
+client.once('clientReady', () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
 });
 
@@ -54,6 +57,13 @@ client.on('messageCreate', async message => {
     const command = args.shift().toLowerCase();
 
     if (command === 'rate') {
+        // ===== KONTROLA OPRÁVNĚNÍ ZDE =====
+        // Zkontrolujeme, jestli má autor zprávy práva administrátora
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            // Pokud nemá, pošleme zprávu a ukončíme provádění příkazu
+            return message.channel.send('K tomuto příkazu nemáš oprávnění. Pouze pro administrátory.');
+        }
+
         const user = message.mentions.users.first();
         if (!user) return message.channel.send('Musíš označit uživatele. Formát: `m!rate [@user] [hodnocení]`');
         
@@ -62,7 +72,7 @@ client.on('messageCreate', async message => {
         
         if (!ratings[user.id]) ratings[user.id] = [];
         ratings[user.id].push(rating);
-        saveRatings(); // Tato funkce nyní ukládá do Volume
+        saveRatings();
         
         const userRatings = ratings[user.id];
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
@@ -73,10 +83,7 @@ client.on('messageCreate', async message => {
             const member = await message.guild.members.fetch(user.id);
             const role = message.guild.roles.cache.get(roleId);
 
-            if (!member || !role) {
-                console.error('Nepodařilo se najít člena nebo roli. Zkontrolujte ID role.');
-                return;
-            }
+            if (!member || !role) return;
 
             if (averageRating > 9) {
                 if (!member.roles.cache.has(role.id)) {
@@ -95,12 +102,11 @@ client.on('messageCreate', async message => {
     }
 
     if (command === 'score') {
+        // Tento příkaz může použít kdokoliv
         if (message.mentions.everyone) {
             const userIds = Object.keys(ratings);
 
-            if (userIds.length === 0) {
-                return message.channel.send('Zatím nikdo nebyl hodnocen.');
-            }
+            if (userIds.length === 0) return message.channel.send('Zatím nikdo nebyl hodnocen.');
 
             userIds.sort((a, b) => {
                 const avgA = ratings[a].reduce((sum, r) => sum + r, 0) / ratings[a].length;
@@ -124,35 +130,26 @@ client.on('messageCreate', async message => {
                     if (member && member.roles.cache.has(roleId)) {
                         roleIndicator = ' 🏆';
                     }
-                } catch (error) {
-                    console.log(`Nepodařilo se načíst člena ${userId}, pravděpodobně opustil server.`);
-                }
+                } catch (error) { /* Ignorujeme chyby */ }
                 
                 description += `<@${userId}>: **${averageRating.toFixed(2)}** / 10 (${userRatings.length} hodnocení)${roleIndicator}\n`;
             }
 
-            if (description.length > 4096) {
-                description = description.substring(0, 4090) + '...';
-            }
+            if (description.length > 4096) description = description.substring(0, 4090) + '...';
 
             scoreEmbed.setDescription(description);
             return message.channel.send({ embeds: [scoreEmbed] });
         }
 
         const user = message.mentions.users.first();
-        if (!user) {
-            return message.channel.send('Musíš označit uživatele nebo použít `@everyone`. Formát: `m!score [@user]` nebo `m!score @everyone`');
-        }
+        if (!user) return message.channel.send('Musíš označit uživatele nebo použít `@everyone`.');
 
         const userRatings = ratings[user.id];
-        if (!userRatings || userRatings.length === 0) {
-            return message.channel.send(`Uživatel <@${user.id}> ještě nemá žádné hodnocení.`);
-        }
+        if (!userRatings || userRatings.length === 0) return message.channel.send(`Uživatel <@${user.id}> ještě nemá žádné hodnocení.`);
 
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
         return message.channel.send(`Uživatel <@${user.id}> má průměrné hodnocení: **${averageRating.toFixed(2)}** / 10`);
     }
-
 });
 
 client.login(process.env.BOT_TOKEN);
