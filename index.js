@@ -55,61 +55,43 @@ client.on('messageCreate', async message => {
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
         
         message.channel.send(`<@${user.id}> -> ${averageRating.toFixed(2)} | Dostal hodnocení: ${rating}`);
-
-        // =========================================================
-        // VYLEPŠENÁ A ODOLNĚJŠÍ LOGIKA PRO SPRÁVU ROLÍ
-        // =========================================================
+        
         try {
-            console.log(`[LOG] Průměrné hodnocení pro ${user.tag} je ${averageRating.toFixed(2)}.`);
-
-            // Použijeme .fetch() pro jistotu, že dostaneme aktuálního člena, i když není v cache
             const member = await message.guild.members.fetch(user.id);
-            if (!member) {
-                console.error(`[CHYBA] Nepodařilo se najít člena serveru pro ID: ${user.id}`);
-                return;
-            }
-            console.log(`[LOG] Člen serveru ${member.user.tag} nalezen.`);
-
-            // Získání role
             const role = message.guild.roles.cache.get(roleId);
-            if (!role) {
-                console.error(`[CHYBA] Role s ID ${roleId} nebyla na serveru nalezena. Zkontrolujte proměnnou ROLE_ID na Railway a jestli role existuje.`);
+
+            if (!member || !role) {
+                console.error('Nepodařilo se najít člena nebo roli. Zkontrolujte ID role.');
                 return;
             }
-            console.log(`[LOG] Role "${role.name}" nalezena.`);
-
-            const hasRole = member.roles.cache.has(role.id);
-            console.log(`[LOG] Má uživatel roli? ${hasRole ? 'Ano' : 'Ne'}`);
 
             if (averageRating > 9) {
-                console.log('[LOG] Podmínka pro přidání role (rating > 9) je splněna.');
-                if (!hasRole) {
-                    console.log(`[LOG] Pokouším se přidat roli "${role.name}" uživateli ${member.user.tag}...`);
+                if (!member.roles.cache.has(role.id)) {
                     await member.roles.add(role);
-                    console.log(`[LOG] Role byla úspěšně přidělena.`);
                     message.channel.send(`Gratuluji, <@${member.id}>! Díky vysokému hodnocení jsi získal(a) roli **${role.name}**.`);
                 }
             } else {
-                console.log('[LOG] Podmínka pro odebrání role (rating <= 9) je splněna.');
-                if (hasRole) {
-                    console.log(`[LOG] Pokouším se odebrat roli "${role.name}" uživateli ${member.user.tag}...`);
+                if (member.roles.cache.has(role.id)) {
                     await member.roles.remove(role);
-                    console.log(`[LOG] Role byla úspěšně odebrána.`);
                     message.channel.send(`Škoda, <@${member.id}>. Tvé hodnocení kleslo, proto ti byla odebrána role **${role.name}**.`);
                 }
             }
         } catch (error) {
-            console.error('[ZÁVAŽNÁ CHYBA] Došlo k chybě při správě rolí:', error);
-            message.channel.send('Při správě rolí došlo k chybě. Nejspíše mi chybí oprávnění nebo je má role příliš nízko. Zkontrolujte prosím logy.');
+            console.error('Došlo k chybě při správě rolí:', error);
         }
     }
 
     if (command === 'score') {
-        // ... (kód pro score zůstává stejný)
+        // =========================================================
+        // VYLEPŠENÝ KÓD PRO 'm!score @everyone'
+        // =========================================================
         if (message.mentions.everyone) {
             const userIds = Object.keys(ratings);
-            if (userIds.length === 0) return message.channel.send('Zatím nikdo nebyl hodnocen.');
-            
+
+            if (userIds.length === 0) {
+                return message.channel.send('Zatím nikdo nebyl hodnocen.');
+            }
+
             userIds.sort((a, b) => {
                 const avgA = ratings[a].reduce((sum, r) => sum + r, 0) / ratings[a].length;
                 const avgB = ratings[b].reduce((sum, r) => sum + r, 0) / ratings[b].length;
@@ -117,29 +99,53 @@ client.on('messageCreate', async message => {
             });
 
             const scoreEmbed = new EmbedBuilder()
-                .setColor('#0099ff')
-                .setTitle('Průměrné hodnocení všech uživatelů')
+                .setColor('#FFD700') // Zlatá barva
+                .setTitle('🏆 Průměrné hodnocení všech uživatelů')
                 .setTimestamp();
             
             let description = '';
-            userIds.forEach(userId => {
+            // Použijeme for...of cyklus, abychom mohli správně použít 'await'
+            for (const userId of userIds) {
                 const userRatings = ratings[userId];
                 const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
-                description += `<@${userId}>: **${averageRating.toFixed(2)}** / 10 (${userRatings.length} hodnocení)\n`;
-            });
+                
+                let roleIndicator = ''; // Indikátor role, defaultně prázdný
+                try {
+                    // Zkusíme načíst člena serveru, abychom zkontrolovali jeho role
+                    const member = await message.guild.members.fetch(userId);
+                    if (member && member.roles.cache.has(roleId)) {
+                        roleIndicator = ' 🏆'; // Pokud má roli, přidáme ikonu
+                    }
+                } catch (error) {
+                    // Pokud uživatel není na serveru, nic se nestane, ikona se nepřidá
+                    console.log(`Nepodařilo se načíst člena ${userId}, pravděpodobně opustil server.`);
+                }
+                
+                description += `<@${userId}>: **${averageRating.toFixed(2)}** / 10 (${userRatings.length} hodnocení)${roleIndicator}\n`;
+            }
+
+            if (description.length > 4096) {
+                description = description.substring(0, 4090) + '...';
+            }
+
             scoreEmbed.setDescription(description);
             return message.channel.send({ embeds: [scoreEmbed] });
         }
-        
+
         const user = message.mentions.users.first();
-        if (!user) return message.channel.send('Musíš označit uživatele nebo použít `@everyone`.');
-        
+        if (!user) {
+            return message.channel.send('Musíš označit uživatele nebo použít `@everyone`. Formát: `m!score [@user]` nebo `m!score @everyone`');
+        }
+
         const userRatings = ratings[user.id];
-        if (!userRatings || userRatings.length === 0) return message.channel.send(`Uživatel <@${user.id}> ještě nemá žádné hodnocení.`);
-        
+        if (!userRatings || userRatings.length === 0) {
+            return message.channel.send(`Uživatel <@${user.id}> ještě nemá žádné hodnocení.`);
+        }
+
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
         return message.channel.send(`Uživatel <@${user.id}> má průměrné hodnocení: **${averageRating.toFixed(2)}** / 10`);
     }
+
 });
 
 client.login(process.env.BOT_TOKEN);
