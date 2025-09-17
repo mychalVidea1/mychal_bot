@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
-const fs =require('fs');
+const fs = require('fs');
 
 const client = new Client({
     intents: [
@@ -16,7 +16,6 @@ const client = new Client({
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 
-// ===== NOVINKA: GIF PRO CHYBOVÉ HLÁŠKY =====
 const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
 
 const dataDirectory = '/data';
@@ -72,7 +71,6 @@ client.on('messageCreate', async message => {
     const command = args.shift().toLowerCase();
 
     if (command === 'rate') {
-        // ===== PŘIDÁN GIF K CHYBOVÝM HLÁŠKÁM ZDE =====
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return message.channel.send(`Na tohle nemáš oprávnění, kámo. ✋ Jen pro adminy.\n\n${errorGif}`);
         }
@@ -202,16 +200,4 @@ client.on('messageCreate', async message => {
     }
 });
 
-client.login(process.env.BOT_TOKEN);```
-
-### Co se změnilo:
-
-1.  **Definice GIFu:** Na začátku kódu jsem přidal konstantu `errorGif`, která obsahuje odkaz na tvůj GIF. Díky tomu ho můžeme snadno použít na více místech a v budoucnu ho jednoduše změnit.
-    ```javascript
-    const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
-    ```
-2.  **Přidání do zpráv:** Ke každé chybové hlášce, která jde uživateli (např. špatný příkaz, nedostatečná práva), jsem na konec textu přidal `\n\n${errorGif}`.
-    *   `\n\n` vytvoří dva nové řádky, aby byl GIF oddělený od textu.
-    *   `${errorGif}` vloží odkaz na GIF. Discord tento odkaz automaticky rozpozná a zobrazí GIF v chatu.
-
-Teď bude každá chyba doprovázena patřičnou "womp womp" reakcí.
+client.login(process.env.BOT_TOKEN);
