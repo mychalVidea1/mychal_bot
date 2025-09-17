@@ -1,0 +1,13 @@
+# Složka se všemi staženými knihovnami - nikdy ji nenahrávej!
+node_modules/
+
+# Soubor s tvými tajnými klíči pro lokální testování - NIKDY ho nenahrávej!
+.env
+
+# Datové soubory, které se generují při lokálním testování
+ratings.json
+message_counts.json
+
+# Systémové soubory (pro Mac a Windows)
+.DS_Store
+Thumbs.db
