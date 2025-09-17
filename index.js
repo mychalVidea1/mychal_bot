@@ -70,23 +70,20 @@ client.on('messageCreate', async message => {
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // ===== ZMĚNA ZDE: VŠECHNY CHYBOVÉ ZPRÁVY NYNÍ POUŽÍVAJÍ EMBED PRO GIF =====
     if (command === 'rate') {
-        const errorEmbed = new EmbedBuilder().setImage(errorGif);
-
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return message.channel.send({ content: 'Na tohle nemáš oprávnění, kámo. ✋ Jen pro adminy.', embeds: [errorEmbed] });
+            return message.channel.send(`Na tohle nemáš oprávnění, kámo. ✋ Jen pro adminy.\n\n${errorGif}`);
         }
 
         const user = message.mentions.users.first();
-        if (!user) return message.channel.send({ content: 'Bruh, koho mám jako hodnotit? Musíš někoho @označit! 🤔', embeds: [errorEmbed] });
+        if (!user) return message.channel.send(`Bruh, koho mám jako hodnotit? Musíš někoho @označit! 🤔\n\n${errorGif}`);
         
         if (user.id === message.author.id) {
-            return message.channel.send({ content: 'Snažíš se sám sobě dát 10/10, co? Hezký pokus, ale takhle to nefunguje. 😂', embeds: [errorEmbed] });
+            return message.channel.send(`Snažíš se sám sobě dát 10/10, co? Hezký pokus, ale takhle to nefunguje. 😂\n\n${errorGif}`);
         }
         
         const rating = parseInt(args[1]);
-        if (isNaN(rating) || rating < 0 || rating > 10) return message.channel.send({ content: 'Stupnice je 0-10, bro. Ani víc, ani míň. 🔢', embeds: [errorEmbed] });
+        if (isNaN(rating) || rating < 0 || rating > 10) return message.channel.send(`Stupnice je 0-10, bro. Ani víc, ani míň. 🔢\n\n${errorGif}`);
         
         if (!ratings[user.id]) ratings[user.id] = [];
         
@@ -105,7 +102,7 @@ client.on('messageCreate', async message => {
         
         try {
             if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-                return message.channel.send({ content: "Chyba: Nemám oprávnění spravovat role. Prosím, zkontroluj má oprávnění.", embeds: [errorEmbed] });
+                return message.channel.send(`Chyba: Nemám oprávnění spravovat role. Prosím, zkontroluj má oprávnění.\n\n${errorGif}`);
             }
             
             const member = await message.guild.members.fetch(user.id);
@@ -131,12 +128,10 @@ client.on('messageCreate', async message => {
     }
 
     if (command === 'score') {
-        const errorEmbed = new EmbedBuilder().setImage(errorGif);
-
         if (message.mentions.everyone) {
             const userIds = Object.keys(ratings);
 
-            if (userIds.length === 0) return message.channel.send({ content: 'Zatím nikdo nebyl hodnocen, síň slávy je prázdná! 텅텅', embeds: [errorEmbed] });
+            if (userIds.length === 0) return message.channel.send(`Zatím nikdo nebyl hodnocen, síň slávy je prázdná! 텅텅\n\n${errorGif}`);
 
             userIds.sort((a, b) => {
                 const avgA = ratings[a].reduce((sum, r) => sum + r, 0) / ratings[a].length;
@@ -189,9 +184,9 @@ client.on('messageCreate', async message => {
         const userRatings = ratings[targetUser.id];
         if (!userRatings || userRatings.length === 0) {
             if (targetUser.id === message.author.id) {
-                return message.channel.send({ content: 'Zatím nemáš žádné hodnocení, kámo! 🤷', embeds: [errorEmbed] });
+                return message.channel.send(`Zatím nemáš žádné hodnocení, kámo! 🤷\n\n${errorGif}`);
             } else {
-                return message.channel.send({ content: `Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`, embeds: [errorEmbed] });
+                return message.channel.send(`Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜\n\n${errorGif}`);
             }
         }
 
