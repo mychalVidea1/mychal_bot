@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
+const axios = require('axios');
 
 const client = new Client({
     intents: [
@@ -17,25 +18,14 @@ const client = new Client({
 // ======================= NASTAVENÍ =======================
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
+const geminiApiKey = process.env.GEMINI_API_KEY;
 const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
 
 const ownerRoleId = '875091178322812988';
 const activityChannelId = '875097279650992128';
-const filterWhitelistChannelId = '875093420090216499';
 const startupChannelId = '1005985776158388264';
 const logChannelId = '1025689879973203968';
-
-const nWords = [
-    'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
-    'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri'
-];
-const inappropriateWords = [
-    'kurva', 'kurvo', 'kurvy', 'kunda', 'píča', 'pica', 'píčo', 'pico', 'pičo',
-    'kokot', 'kokote', 'kkt', 'čurák', 'curak', 'čůrák', 'mrdka', 'mrd', 'šukat', 'mrdat',
-    'debil', 'blbec', 'idiot', 'zmrd', 'hajzl', 'hovno', 'kretén', 'magor', 'buzerant',
-    'fuck', 'f*ck', 'fck', 'fuk', 'shit', 'sh*t', 'sht', 'bitch', 'b*tch',
-    'cunt', 'c*nt', 'asshole', 'assh*le', 'bastard', 'motherfucker', 'mf', 'dick', 'pussy', 'faggot'
-];
+const aiModerationCategoryId = '875027588987387994';
 // ==============================================================================
 
 const dataDirectory = '/data';
@@ -75,10 +65,8 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) {
         const member = await guild.members.fetch(userId).catch(() => null);
         const role = guild.roles.cache.get(roleId);
         if (!member || !role) return;
-
         const averageRating = calculateAverage(userId);
         const hasRole = member.roles.cache.has(roleId);
-
         if (averageRating > 9 && !hasRole) {
             await member.roles.add(role);
             const messageContent = `🎉 Gratulace, <@${member.id}>! Tvé skóre tě katapultovalo mezi elitu a získal(a) jsi roli **${role.name}**! 🚀`;
@@ -91,16 +79,14 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) {
         } else if (averageRating <= 9 && hasRole) {
             await member.roles.remove(role);
             const messageContent = `📉 Pozor, <@${member.id}>! Tvé hodnocení kleslo a přišel(a) jsi o roli **${role.name}**. Zaber!`;
-             if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) {
+            if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) {
                 sourceMessage.reply(messageContent).catch(() => {});
             } else {
                 const channel = await client.channels.fetch(logChannelId).catch(() => null);
                 if (channel) channel.send(messageContent).catch(() => {});
             }
         }
-    } catch (error) {
-        console.error(`Došlo k chybě při aktualizaci role pro ${userId}:`, error);
-    }
+    } catch (error) { console.error(`Došlo k chybě při aktualizaci role pro ${userId}:`, error); }
 }
 
 function addRating(userId, rating, reason = "") {
@@ -123,12 +109,35 @@ function cleanupOldRatings() {
 }
 cleanupOldRatings();
 
+async function isToxic(text) {
+    if (!geminiApiKey) {
+        console.log("Gemini API klíč chybí. Analýza toxicity je přeskočena.");
+        return false;
+    }
+    try {
+        const prompt = `Je následující text, napsaný v chatu, toxický nebo urážlivý? Odpovídej na rovinu a pouze slovem "ANO" nebo "NE", nic víc. Text: "${text}"`;
+        const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`,
+            {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { maxOutputTokens: 5 },
+            }
+        );
+        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`);
+        return result.includes("ANO");
+    } catch (error) {
+        console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data : error.message);
+        return false;
+    }
+}
+
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
     try {
         const channel = await client.channels.fetch(startupChannelId);
         if (channel) {
-            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze pročištěna. Jsem připraven hodnotit vaše chování, kulišáci! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
+            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze pročištěna. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) { console.error(`Nepodařilo se odeslat startup zprávu. Chyba:`, error); }
@@ -143,7 +152,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         await updateRoleStatus(newMember.id, newMember.guild, null);
         try {
             const channel = await client.channels.fetch(logChannelId);
-            if(channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`);
+            if (channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`);
         } catch (err) { console.error(`Nepodařilo se najít logovací kanál (${logChannelId}) pro zprávu o timeoutu.`); }
     }
 });
@@ -154,7 +163,7 @@ client.on('guildBanAdd', async (ban) => {
     await updateRoleStatus(ban.user.id, ban.guild, null);
     try {
         const channel = await client.channels.fetch(logChannelId);
-        if(channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
+        if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
     } catch (err) { console.error(`Nepodařilo se najít logovací kanál (${logChannelId}) pro zprávu o banu.`); }
 });
 
@@ -162,31 +171,19 @@ client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
 
     if (!message.content.startsWith(prefix)) {
-        if (message.channel.id === filterWhitelistChannelId) return;
         if (message.member && message.member.roles.cache.has(ownerRoleId)) return;
 
-        const messageContent = message.content.toLowerCase().replace(/\s/g, '');
-        if (nWords.some(word => messageContent.includes(word))) {
-            ratings[message.author.id] = [0];
-            saveRatings();
-            await updateRoleStatus(message.author.id, message.guild, message);
-            try {
-                await message.delete();
-                const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil zakázané slovo. Jeho hodnocení bylo **resetováno na 0**.`);
-                setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
-            } catch (err) { console.error("Chybí mi oprávnění 'Spravovat zprávy'."); }
-            return;
-        }
-        
-        if (inappropriateWords.some(word => messageContent.includes(word))) {
-            addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
-            await updateRoleStatus(message.author.id, message.guild, message);
-            try {
-                await message.delete();
-                const warningMsg = await message.channel.send(`<@${message.author.id}>, za nevhodné chování ti byl snížen rating o **1 bod**.`);
-                setTimeout(() => warningMsg.delete().catch(() => {}), 10000);
-            } catch (err) { console.error("Chybí mi oprávnění 'Spravovat zprávy'."); }
-            return;
+        if (message.channel.parentId === aiModerationCategoryId) {
+            if (await isToxic(message.content)) {
+                addRating(message.author.id, -2, `Důvod: Toxická zpráva (detekováno AI)`);
+                await updateRoleStatus(message.author.id, message.guild, message);
+                try {
+                    await message.delete();
+                    const warningMsg = await message.channel.send(`<@${message.author.id}>, tvá zpráva byla vyhodnocena jako nevhodná a tvé hodnocení bylo sníženo.`);
+                    setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+                } catch (err) { console.error("Chybí mi oprávnění 'Spravovat zprávy'."); }
+                return;
+            }
         }
 
         if (message.channel.id === activityChannelId) {
