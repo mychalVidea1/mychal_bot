@@ -96,7 +96,7 @@ client.once('clientReady', async () => {
                 .setDescription('Systémy nastartovány, databáze pročištěna. Jsem připraven hodnotit vaše chování, kulišáci! 👀')
                 .setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208')
                 .setTimestamp()
-                .setFooter({ text: 'Powered by mychalVidea1' });
+                .setFooter({ text: 'mychalVidea' });
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) { console.error(`Nepodařilo se odeslat startup zprávu. Chyba:`, error); }
@@ -268,8 +268,14 @@ client.on('messageCreate', async message => {
         const averageRating = calculateAverage(targetUser.id);
         
         let scoreMsg;
-        if (targetUser.id === message.author.id) scoreMsg = `🌟 Tvé průměrné hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
-        else scoreMsg = `🌟 Průměrné hodnocení uživatele <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
+        // ===== ZMĚNA JE PŘESNĚ TADY =====
+        if (targetUser.id === message.author.id) {
+            // Přidali jsme zmínku i do zprávy pro autora
+            scoreMsg = `🌟 <@${targetUser.id}> Tvé průměrné hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
+        } else {
+            // Tuto zprávu můžeme pro konzistenci taky upravit
+            scoreMsg = `🌟 Průměrné hodnocení uživatele <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
+        }
 
         const reply = await message.channel.send(scoreMsg);
         setTimeout(() => reply.delete().catch(() => {}), 10000);
