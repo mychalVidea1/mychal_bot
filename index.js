@@ -60,19 +60,38 @@ client.on('messageCreate', async message => {
         const user = message.mentions.users.first();
         if (!user) return message.channel.send('Musíš označit uživatele. Formát: `m!rate [@user] [hodnocení]`');
         
+        // ===== NOVINKA 1: OCHRANA PROTI SEBEHODNOCENÍ =====
+        if (user.id === message.author.id) {
+            return message.channel.send('Nemůžeš hodnotit sám sebe.');
+        }
+        
         const rating = parseInt(args[1]);
         if (isNaN(rating) || rating < 0 || rating > 10) return message.channel.send('Hodnocení musí být číslo od 0 do 10.');
         
         if (!ratings[user.id]) ratings[user.id] = [];
+        
         ratings[user.id].push(rating);
+        
+        // ===== NOVINKA 2: UDRŽOVÁNÍ POUZE 10 NEJNOVĚJŠÍCH HODNOCENÍ =====
+        // Pokud má uživatel více než 10 hodnocení, smažeme to nejstarší (první v poli)
+        if (ratings[user.id].length > 10) {
+            ratings[user.id].shift();
+        }
+        
         saveRatings();
         
         const userRatings = ratings[user.id];
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
         
-        message.channel.send(`<@${user.id}> -> ${averageRating.toFixed(2)} | Dostal hodnocení: ${rating}`);
+        message.channel.send(`<@${user.id}> -> ${averageRating.toFixed(2)} | Dostal hodnocení: ${rating} (posledních ${userRatings.length} hodnocení)`);
         
         try {
+            // ===== NOVINKA 3: KONTROLA OPRÁVNĚNÍ BOTA =====
+            if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+                console.error("CHYBA: Bot nemá oprávnění 'Spravovat role'.");
+                return message.channel.send("Chyba: Nemám oprávnění spravovat role. Prosím, zkontroluj má oprávnění a hierarchii rolí na serveru.");
+            }
+            
             const member = await message.guild.members.fetch(user.id);
             const role = message.guild.roles.cache.get(roleId);
 
@@ -91,11 +110,11 @@ client.on('messageCreate', async message => {
             }
         } catch (error) {
             console.error('Došlo k chybě při správě rolí:', error);
+            message.channel.send('Při správě rolí došlo k neočekávané chybě. Pravděpodobně je má role příliš nízko.');
         }
     }
 
     if (command === 'score') {
-        // Případ 1: Chceme žebříček všech
         if (message.mentions.everyone) {
             const userIds = Object.keys(ratings);
 
@@ -110,6 +129,7 @@ client.on('messageCreate', async message => {
             const scoreEmbed = new EmbedBuilder()
                 .setColor('#FFD700')
                 .setTitle('🏆 Průměrné hodnocení všech uživatelů')
+                .setDescription('Průměr se počítá z posledních max. 10 hodnocení.')
                 .setTimestamp();
             
             let description = '';
@@ -130,19 +150,21 @@ client.on('messageCreate', async message => {
 
             if (description.length > 4096) description = description.substring(0, 4090) + '...';
 
-            scoreEmbed.setDescription(description);
+            // Pokud je description prázdný, použijeme setDescrition. Jinak ho přidáme do polí.
+            // Je to proto, že setDescrition by přepsal ten původní popisek.
+            if (scoreEmbed.data.description) {
+                scoreEmbed.setDescription(scoreEmbed.data.description + '\n\n' + description);
+            } else {
+                scoreEmbed.setDescription(description);
+            }
+            
             return message.channel.send({ embeds: [scoreEmbed] });
         }
-
-        // ===== ZMĚNA ZDE =====
-        // Případ 2: Chceme skóre jednoho uživatele (buď zmíněného, nebo autora zprávy)
         
-        // Pokud je někdo zmíněn, bude to on. Pokud ne, bude to autor zprávy.
         const targetUser = message.mentions.users.first() || message.author;
 
         const userRatings = ratings[targetUser.id];
         if (!userRatings || userRatings.length === 0) {
-            // Zpráva se liší podle toho, jestli se ptáme na sebe, nebo na někoho jiného
             if (targetUser.id === message.author.id) {
                 return message.channel.send(`Zatím nemáš žádné hodnocení.`);
             } else {
@@ -152,11 +174,10 @@ client.on('messageCreate', async message => {
 
         const averageRating = userRatings.reduce((a, b) => a + b, 0) / userRatings.length;
         
-        // Zpráva se opět liší
         if (targetUser.id === message.author.id) {
-            return message.channel.send(`Tvé průměrné hodnocení je: **${averageRating.toFixed(2)}** / 10`);
+            return message.channel.send(`Tvé průměrné hodnocení je: **${averageRating.toFixed(2)}** / 10 (z ${userRatings.length} hodnocení)`);
         } else {
-            return message.channel.send(`Uživatel <@${targetUser.id}> má průměrné hodnocení: **${averageRating.toFixed(2)}** / 10`);
+            return message.channel.send(`Uživatel <@${targetUser.id}> má průměrné hodnocení: **${averageRating.toFixed(2)}** / 10 (z ${userRatings.length} hodnocení)`);
         }
     }
 });
