@@ -22,7 +22,7 @@ const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
 const ownerRoleId = '875091178322812988';
 const activityChannelId = '875097279650992128';
 const filterWhitelistChannelId = '875093420090216499';
-const startupChannelId = '1025689879973203968';
+const startupChannelId = '1005985776158388264';
 const logChannelId = '1025689879973203968';
 
 const nWords = [
@@ -69,24 +69,38 @@ function calculateAverage(userId) {
     return Math.max(0, Math.min(10, average));
 }
 
-async function updateRoleStatus(userId, guild) {
+async function updateRoleStatus(userId, guild, sourceMessage = null) {
     try {
         if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
         const member = await guild.members.fetch(userId).catch(() => null);
         const role = guild.roles.cache.get(roleId);
         if (!member || !role) return;
+
         const averageRating = calculateAverage(userId);
         const hasRole = member.roles.cache.has(roleId);
+
         if (averageRating > 9 && !hasRole) {
             await member.roles.add(role);
-            const channel = await client.channels.fetch(logChannelId).catch(() => null) || guild.systemChannel;
-            if (channel) channel.send(`🎉 Gratulace, <@${member.id}>! Tvé skóre tě katapultovalo mezi elitu a získal(a) jsi roli **${role.name}**! 🚀`);
+            const messageContent = `🎉 Gratulace, <@${member.id}>! Tvé skóre tě katapultovalo mezi elitu a získal(a) jsi roli **${role.name}**! 🚀`;
+            if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) {
+                sourceMessage.reply(messageContent).catch(() => {});
+            } else {
+                const channel = await client.channels.fetch(logChannelId).catch(() => null);
+                if (channel) channel.send(messageContent).catch(() => {});
+            }
         } else if (averageRating <= 9 && hasRole) {
             await member.roles.remove(role);
-            const channel = await client.channels.fetch(logChannelId).catch(() => null) || guild.systemChannel;
-            if (channel) channel.send(`📉 Pozor, <@${member.id}>! Tvé hodnocení kleslo a přišel(a) jsi o roli **${role.name}**. Zaber!`);
+            const messageContent = `📉 Pozor, <@${member.id}>! Tvé hodnocení kleslo a přišel(a) jsi o roli **${role.name}**. Zaber!`;
+             if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) {
+                sourceMessage.reply(messageContent).catch(() => {});
+            } else {
+                const channel = await client.channels.fetch(logChannelId).catch(() => null);
+                if (channel) channel.send(messageContent).catch(() => {});
+            }
         }
-    } catch (error) { console.error(`Došlo k chybě při aktualizaci role pro ${userId}:`, error); }
+    } catch (error) {
+        console.error(`Došlo k chybě při aktualizaci role pro ${userId}:`, error);
+    }
 }
 
 function addRating(userId, rating, reason = "") {
@@ -126,10 +140,10 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     const newTimeout = newMember.communicationDisabledUntilTimestamp;
     if ((!oldTimeout && newTimeout) || (newTimeout > oldTimeout)) {
         addRating(newMember.id, -3, "Důvod: Timeout");
-        await updateRoleStatus(newMember.id, newMember.guild);
+        await updateRoleStatus(newMember.id, newMember.guild, null);
         try {
             const channel = await client.channels.fetch(logChannelId);
-            if (channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`);
+            if(channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`);
         } catch (err) { console.error(`Nepodařilo se najít logovací kanál (${logChannelId}) pro zprávu o timeoutu.`); }
     }
 });
@@ -137,17 +151,16 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
 client.on('guildBanAdd', async (ban) => {
     ratings[ban.user.id] = [0];
     saveRatings();
-    await updateRoleStatus(ban.user.id, ban.guild);
+    await updateRoleStatus(ban.user.id, ban.guild, null);
     try {
         const channel = await client.channels.fetch(logChannelId);
-        if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
+        if(channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
     } catch (err) { console.error(`Nepodařilo se najít logovací kanál (${logChannelId}) pro zprávu o banu.`); }
 });
 
 client.on('messageCreate', async message => {
-    if (message.author.bot || !message.guild) return; // OCHRANA PROTI BOTŮM A DM ZPRÁVÁM
+    if (message.author.bot || !message.guild) return;
 
-    // Část pro automoderaci a odměny (pokud zpráva NENÍ příkaz)
     if (!message.content.startsWith(prefix)) {
         if (message.channel.id === filterWhitelistChannelId) return;
         if (message.member && message.member.roles.cache.has(ownerRoleId)) return;
@@ -156,7 +169,7 @@ client.on('messageCreate', async message => {
         if (nWords.some(word => messageContent.includes(word))) {
             ratings[message.author.id] = [0];
             saveRatings();
-            await updateRoleStatus(message.author.id, message.guild);
+            await updateRoleStatus(message.author.id, message.guild, message);
             try {
                 await message.delete();
                 const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil zakázané slovo. Jeho hodnocení bylo **resetováno na 0**.`);
@@ -167,7 +180,7 @@ client.on('messageCreate', async message => {
         
         if (inappropriateWords.some(word => messageContent.includes(word))) {
             addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
-            await updateRoleStatus(message.author.id, message.guild);
+            await updateRoleStatus(message.author.id, message.guild, message);
             try {
                 await message.delete();
                 const warningMsg = await message.channel.send(`<@${message.author.id}>, za nevhodné chování ti byl snížen rating o **1 bod**.`);
@@ -185,7 +198,7 @@ client.on('messageCreate', async message => {
                 } else {
                     addRating(message.author.id, 10, "Důvod: Aktivita");
                 }
-                await updateRoleStatus(message.author.id, message.guild);
+                await updateRoleStatus(message.author.id, message.guild, message);
                 messageCounts[message.author.id] = 0;
             }
             saveMessageCounts();
@@ -193,44 +206,36 @@ client.on('messageCreate', async message => {
         return; 
     }
 
-    // Část pro příkazy
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
     if (command === 'rate') {
-        try { await message.delete(); } 
-        catch (err) { console.error("Chyba při mazání příkazu (rate)."); }
-
+        try { await message.delete(); } catch (err) {}
         const errorEmbed = new EmbedBuilder().setImage(errorGif);
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             const reply = await message.channel.send({ content: 'Na tohle nemáš oprávnění, kámo. ✋ Jen pro adminy.', embeds: [errorEmbed] });
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
-        
         const user = message.mentions.users.first();
         if (!user) {
             const reply = await message.channel.send({ content: 'Bruh, koho mám jako hodnotit? Musíš někoho @označit! 🤔', embeds: [errorEmbed] });
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
-        
         if (user.id === message.author.id) {
             const reply = await message.channel.send({ content: 'Snažíš se sám sobě dát 10/10, co? Hezký pokus, ale takhle to nefunguje. 😂', embeds: [errorEmbed] });
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
-        
         const rating = parseFloat(args[1]); 
         if (isNaN(rating) || rating < -10 || rating > 10) {
             const reply = await message.channel.send({ content: 'Stupnice je -10 až 10, bro. Ani víc, ani míň. 🔢', embeds: [errorEmbed] });
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
-        
         addRating(user.id, rating, `Ručně adminem ${message.author.tag}`);
-        await updateRoleStatus(user.id, message.guild);
-        
+        await updateRoleStatus(user.id, message.guild, message);
         const averageRating = calculateAverage(user.id);
         const reply = await message.channel.send(`**<@${user.id}>** obdržel(a) nové hodnocení! 🔥 Průměr: **\`${averageRating.toFixed(2)} / 10\`**`);
         setTimeout(() => reply.delete().catch(() => {}), 20000);
@@ -238,20 +243,11 @@ client.on('messageCreate', async message => {
 
     if (command === 'score') {
         if (message.mentions.everyone) {
-            try { await message.delete(); } 
-            catch (err) { console.error("Chyba při mazání příkazu (score @everyone)."); }
-
+            try { await message.delete(); } catch (err) {}
             const userIds = Object.keys(ratings);
             if (userIds.length === 0) return message.channel.send({ content: 'Síň slávy je prázdná!', embeds: [new EmbedBuilder().setImage(errorGif)] });
-            
             userIds.sort((a, b) => calculateAverage(b) - calculateAverage(a));
-
-            const scoreEmbed = new EmbedBuilder()
-                .setColor('#5865F2')
-                .setTitle('✨🏆 SÍŇ SLÁVY 🏆✨')
-                .setDescription('Udržuj si skóre nad **9.0** a získáš přístup do 👑 | VIP kanálu pro volání na streamech!\n\n')
-                .setTimestamp()
-                .setFooter({ text: 'Vaše chování ovlivňuje vaše skóre. Buďte v pohodě! 😉' });
+            const scoreEmbed = new EmbedBuilder().setColor('#5865F2').setTitle('✨🏆 SÍŇ SLÁVY 🏆✨').setDescription('Udržuj si skóre nad **9.0** a získáš přístup do 👑 | VIP kanálu pro volání na streamech!\n\n').setTimestamp().setFooter({ text: 'Vaše chování ovlivňuje vaše skóre. Buďte v pohodě! 😉' });
             let leaderboardString = '';
             let rank = 1;
             for (const userId of userIds) {
@@ -263,10 +259,7 @@ client.on('messageCreate', async message => {
                     if (member && member.roles.cache.has(roleId)) roleIndicator = ' 👑';
                 } catch (error) {}
                 let rankDisplay;
-                if (rank === 1) rankDisplay = '🥇';
-                else if (rank === 2) rankDisplay = '🥈';
-                else if (rank === 3) rankDisplay = '🥉';
-                else rankDisplay = `**${rank}.**`;
+                if (rank === 1) rankDisplay = '🥇'; else if (rank === 2) rankDisplay = '🥈'; else if (rank === 3) rankDisplay = '🥉'; else rankDisplay = `**${rank}.**`;
                 leaderboardString += `${rankDisplay} <@${userId}> ⮞ \` ${averageRating.toFixed(2)} / 10 \` ${roleIndicator}\n`;
                 rank++;
             }
@@ -274,32 +267,25 @@ client.on('messageCreate', async message => {
             return message.channel.send({ embeds: [scoreEmbed] });
         }
         
-        try { await message.delete(); } 
-        catch (err) { console.error("Chyba při mazání příkazu (score)."); }
-
+        try { await message.delete(); } catch (err) {}
         const errorEmbed = new EmbedBuilder().setImage(errorGif);
         const targetUser = message.mentions.users.first() || message.author;
-        
         const userRatings = ratings[targetUser.id] || [];
         if (userRatings.length === 0) {
             let errorMsg;
             if (targetUser.id === message.author.id) errorMsg = 'Zatím nemáš žádné hodnocení, kámo! 🤷';
             else errorMsg = `Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`;
-            
             const reply = await message.channel.send({ content: errorMsg, embeds: [errorEmbed] });
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
-        
         const averageRating = calculateAverage(targetUser.id);
-        
         let scoreMsg;
         if (targetUser.id === message.author.id) {
             scoreMsg = `🌟 <@${targetUser.id}> Tvé průměrné hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
         } else {
             scoreMsg = `🌟 Průměrné hodnocení uživatele <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
         }
-
         const reply = await message.channel.send(scoreMsg);
         setTimeout(() => reply.delete().catch(() => {}), 10000);
     }
