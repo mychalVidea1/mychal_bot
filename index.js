@@ -117,7 +117,7 @@ async function isToxic(text) {
     try {
         const prompt = `Je následující text, napsaný v chatu, toxický nebo urážlivý nebo obsahuje vulgarismy (nepočítá se vole)? Odpovídej na rovinu a pouze slovem "ANO" nebo "NE", nic víc. Text: "${text}"`;
         const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v2beta/models/gemini-2.5-flash-lite-latest:generateContent?key=${geminiApiKey}`,
+            `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite-latest:generateContent?key=${geminiApiKey}`,
             {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: { maxOutputTokens: 5 },
