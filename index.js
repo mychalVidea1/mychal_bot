@@ -215,6 +215,9 @@ client.on('messageCreate', async message => {
 
     if (command === 'score') {
         if (message.mentions.everyone) {
+            try { await message.delete(); } 
+            catch (err) { console.error("Chyba při mazání příkazu (score @everyone): Chybí mi oprávnění 'Spravovat zprávy'."); }
+
             const userIds = Object.keys(ratings);
             if (userIds.length === 0) return message.channel.send({ content: 'Síň slávy je prázdná!', embeds: [new EmbedBuilder().setImage(errorGif)] });
             
@@ -268,12 +271,9 @@ client.on('messageCreate', async message => {
         const averageRating = calculateAverage(targetUser.id);
         
         let scoreMsg;
-        // ===== ZMĚNA JE PŘESNĚ TADY =====
         if (targetUser.id === message.author.id) {
-            // Přidali jsme zmínku i do zprávy pro autora
             scoreMsg = `🌟 <@${targetUser.id}> Tvé průměrné hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
         } else {
-            // Tuto zprávu můžeme pro konzistenci taky upravit
             scoreMsg = `🌟 Průměrné hodnocení uživatele <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
         }
 
