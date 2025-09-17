@@ -18,7 +18,10 @@ const client = new Client({
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
-const activityChannelId = '875097279650992128'; 
+
+const ownerRoleId = '875091178322812988';
+const activityChannelId = '875097279650992128';
+const filterWhitelistChannelId = '875093420090216499';
 const startupChannelId = '1025689879973203968';
 
 const nWords = [
@@ -27,10 +30,10 @@ const nWords = [
 ];
 const inappropriateWords = [
     'kurva', 'kurvo', 'kurvy', 'kunda', 'píča', 'pica', 'píčo', 'pico', 'pičo',
-    'kokot', 'kokote', 'kkt', 'čurák', 'curak', 'čůrák', 'mrdka', 'mrd', 'šukat',
-    'debil', 'blbec', 'idiot', 'zmrd', 'hajzl', 'hovno', 'kretén',
+    'kokot', 'kokote', 'kkt', 'čurák', 'curak', 'čůrák', 'mrdka', 'mrd', 'šukat', 'mrdat',
+    'debil', 'blbec', 'idiot', 'zmrd', 'hajzl', 'hovno', 'kretén', 'magor', 'buzerant',
     'fuck', 'f*ck', 'fck', 'fuk', 'shit', 'sh*t', 'sht', 'bitch', 'b*tch',
-    'cunt', 'c*nt', 'asshole', 'assh*le', 'bastard', 'motherfucker', 'mf', 'dick', 'pussy'
+    'cunt', 'c*nt', 'asshole', 'assh*le', 'bastard', 'motherfucker', 'mf', 'dick', 'pussy', 'faggot'
 ];
 // ==============================================================================
 
@@ -103,7 +106,7 @@ client.once('clientReady', async () => {
 });
 
 client.on('guildMemberUpdate', (oldMember, newMember) => {
-    if (newMember.permissions.has(PermissionsBitField.Flags.Administrator)) return;
+    if (newMember.roles.cache.has(ownerRoleId)) return;
     const oldTimeout = oldMember.communicationDisabledUntilTimestamp;
     const newTimeout = newMember.communicationDisabledUntilTimestamp;
     if ((!oldTimeout && newTimeout) || (newTimeout > oldTimeout)) {
@@ -124,9 +127,10 @@ client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
     if (!message.content.startsWith(prefix)) {
-        if (message.member && message.member.permissions.has(PermissionsBitField.Flags.Administrator)) return;
-        const messageContent = message.content.toLowerCase().replace(/\s/g, '');
+        if (message.channel.id === filterWhitelistChannelId) return;
+        if (message.member && message.member.roles.cache.has(ownerRoleId)) return;
 
+        const messageContent = message.content.toLowerCase().replace(/\s/g, '');
         if (nWords.some(word => messageContent.includes(word))) {
             ratings[message.author.id] = [0];
             saveRatings();
@@ -152,7 +156,13 @@ client.on('messageCreate', async message => {
             if (!messageCounts[message.author.id]) messageCounts[message.author.id] = 0;
             messageCounts[message.author.id]++;
             if (messageCounts[message.author.id] >= 10) {
-                addRating(message.author.id, 10, "Důvod: Aktivita");
+                if (!ratings[message.author.id] || ratings[message.author.id].length === 0) {
+                    addRating(message.author.id, 5, "Důvod: První odměna za aktivitu");
+                    const activityMsg = await message.channel.send(`*<@${message.author.id}>, díky za aktivitu! Získáváš své první body do hodnocení.*`);
+                    setTimeout(() => activityMsg.delete().catch(() => {}), 7000);
+                } else {
+                    addRating(message.author.id, 10, "Důvod: Aktivita");
+                }
                 messageCounts[message.author.id] = 0;
             }
             saveMessageCounts();
