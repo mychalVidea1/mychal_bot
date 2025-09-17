@@ -23,6 +23,8 @@ const ownerRoleId = '875091178322812988';
 const activityChannelId = '875097279650992128';
 const filterWhitelistChannelId = '875093420090216499';
 const startupChannelId = '1025689879973203968';
+const logChannelId = '1025689879973203968';
+
 
 const nWords = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
@@ -68,6 +70,33 @@ function calculateAverage(userId) {
     return Math.max(0, Math.min(10, average));
 }
 
+async function updateRoleStatus(userId, guild) {
+    try {
+        if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+            return;
+        }
+        const member = await guild.members.fetch(userId).catch(() => null);
+        const role = guild.roles.cache.get(roleId);
+
+        if (!member || !role) return;
+
+        const averageRating = calculateAverage(userId);
+        const hasRole = member.roles.cache.has(roleId);
+
+        if (averageRating > 9 && !hasRole) {
+            await member.roles.add(role);
+            const channel = await client.channels.fetch(logChannelId).catch(() => null) || guild.systemChannel;
+            if(channel) channel.send(`🎉 Gratulace, <@${member.id}>! Tvé skóre tě katapultovalo mezi elitu a získal(a) jsi roli **${role.name}**! 🚀`);
+        } else if (averageRating <= 9 && hasRole) {
+            await member.roles.remove(role);
+            const channel = await client.channels.fetch(logChannelId).catch(() => null) || guild.systemChannel;
+            if(channel) channel.send(`📉 Pozor, <@${member.id}>! Tvé hodnocení kleslo a přišel(a) jsi o roli **${role.name}**. Zaber!`);
+        }
+    } catch (error) {
+        console.error(`Došlo k chybě při aktualizaci role pro ${userId}:`, error);
+    }
+}
+
 function addRating(userId, rating, reason = "") {
     if (!ratings[userId]) ratings[userId] = [];
     ratings[userId].push(rating);
@@ -105,22 +134,32 @@ client.once('clientReady', async () => {
     } catch (error) { console.error(`Nepodařilo se odeslat startup zprávu. Chyba:`, error); }
 });
 
-client.on('guildMemberUpdate', (oldMember, newMember) => {
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
     const oldTimeout = oldMember.communicationDisabledUntilTimestamp;
     const newTimeout = newMember.communicationDisabledUntilTimestamp;
     if ((!oldTimeout && newTimeout) || (newTimeout > oldTimeout)) {
         addRating(newMember.id, -3, "Důvod: Timeout");
-        const channel = newMember.guild.systemChannel;
-        if(channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`);
+        await updateRoleStatus(newMember.id, newMember.guild);
+        try {
+            const channel = await client.channels.fetch(logChannelId);
+            if(channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`);
+        } catch (err) {
+            console.error(`Nepodařilo se najít logovací kanál (${logChannelId}) pro zprávu o timeoutu.`);
+        }
     }
 });
 
 client.on('guildBanAdd', async (ban) => {
     ratings[ban.user.id] = [0];
     saveRatings();
-    const channel = ban.guild.systemChannel;
-    if(channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
+    await updateRoleStatus(ban.user.id, ban.guild);
+    try {
+        const channel = await client.channels.fetch(logChannelId);
+        if(channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
+    } catch (err) {
+        console.error(`Nepodařilo se najít logovací kanál (${logChannelId}) pro zprávu o banu.`);
+    }
 });
 
 client.on('messageCreate', async message => {
@@ -134,6 +173,7 @@ client.on('messageCreate', async message => {
         if (nWords.some(word => messageContent.includes(word))) {
             ratings[message.author.id] = [0];
             saveRatings();
+            await updateRoleStatus(message.author.id, message.guild);
             try {
                 await message.delete();
                 const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil zakázané slovo. Jeho hodnocení bylo **resetováno na 0**.`);
@@ -144,6 +184,7 @@ client.on('messageCreate', async message => {
         
         if (inappropriateWords.some(word => messageContent.includes(word))) {
             addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
+            await updateRoleStatus(message.author.id, message.guild);
             try {
                 await message.delete();
                 const warningMsg = await message.channel.send(`<@${message.author.id}>, za nevhodné chování ti byl snížen rating o **1 bod**.`);
@@ -158,11 +199,10 @@ client.on('messageCreate', async message => {
             if (messageCounts[message.author.id] >= 10) {
                 if (!ratings[message.author.id] || ratings[message.author.id].length === 0) {
                     addRating(message.author.id, 5, "Důvod: První odměna za aktivitu");
-                    const activityMsg = await message.channel.send(`*<@${message.author.id}>, díky za aktivitu! Získáváš své první body do hodnocení.*`);
-                    setTimeout(() => activityMsg.delete().catch(() => {}), 7000);
                 } else {
                     addRating(message.author.id, 10, "Důvod: Aktivita");
                 }
+                await updateRoleStatus(message.author.id, message.guild);
                 messageCounts[message.author.id] = 0;
             }
             saveMessageCounts();
@@ -175,7 +215,7 @@ client.on('messageCreate', async message => {
 
     if (command === 'rate') {
         try { await message.delete(); } 
-        catch (err) { console.error("Chyba při mazání příkazu (rate): Chybí mi oprávnění 'Spravovat zprávy'."); }
+        catch (err) { console.error("Chyba při mazání příkazu (rate)."); }
 
         const errorEmbed = new EmbedBuilder().setImage(errorGif);
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -205,28 +245,17 @@ client.on('messageCreate', async message => {
         }
         
         addRating(user.id, rating, `Ručně adminem ${message.author.tag}`);
-        const averageRating = calculateAverage(user.id);
+        await updateRoleStatus(user.id, message.guild);
         
+        const averageRating = calculateAverage(user.id);
         const reply = await message.channel.send(`**<@${user.id}>** obdržel(a) nové hodnocení! 🔥 Průměr: **\`${averageRating.toFixed(2)} / 10\`**`);
         setTimeout(() => reply.delete().catch(() => {}), 20000);
-
-        try {
-            if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) return;
-            const member = await message.guild.members.fetch(user.id);
-            const role = message.guild.roles.cache.get(roleId);
-            if (!member || !role) return;
-            if (averageRating > 9) {
-                if (!member.roles.cache.has(role.id)) await member.roles.add(role);
-            } else {
-                if (member.roles.cache.has(role.id)) await member.roles.remove(role);
-            }
-        } catch (error) { console.error('Došlo k chybě při správě rolí:', error); }
     }
 
     if (command === 'score') {
         if (message.mentions.everyone) {
             try { await message.delete(); } 
-            catch (err) { console.error("Chyba při mazání příkazu (score @everyone): Chybí mi oprávnění 'Spravovat zprávy'."); }
+            catch (err) { console.error("Chyba při mazání příkazu (score @everyone)."); }
 
             const userIds = Object.keys(ratings);
             if (userIds.length === 0) return message.channel.send({ content: 'Síň slávy je prázdná!', embeds: [new EmbedBuilder().setImage(errorGif)] });
@@ -262,7 +291,7 @@ client.on('messageCreate', async message => {
         }
         
         try { await message.delete(); } 
-        catch (err) { console.error("Chyba při mazání příkazu (score): Chybí mi oprávnění 'Spravovat zprávy'."); }
+        catch (err) { console.error("Chyba při mazání příkazu (score)."); }
 
         const errorEmbed = new EmbedBuilder().setImage(errorGif);
         const targetUser = message.mentions.users.first() || message.author;
@@ -292,4 +321,4 @@ client.on('messageCreate', async message => {
     }
 });
 
-client.login(process.env.BOT_TOKEN);
+client.login(process.env.BOT_TOKEN);```
