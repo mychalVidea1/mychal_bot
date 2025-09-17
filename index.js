@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
-const fs = require('fs');
+const fs =require('fs');
 
 const client = new Client({
     intents: [
@@ -15,6 +15,9 @@ const client = new Client({
 
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
+
+// ===== NOVINKA: GIF PRO CHYBOVÉ HLÁŠKY =====
+const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
 
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
@@ -69,19 +72,20 @@ client.on('messageCreate', async message => {
     const command = args.shift().toLowerCase();
 
     if (command === 'rate') {
+        // ===== PŘIDÁN GIF K CHYBOVÝM HLÁŠKÁM ZDE =====
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return message.channel.send('K tomuto příkazu nemáš oprávnění. Pouze pro administrátory.');
+            return message.channel.send(`Na tohle nemáš oprávnění, kámo. ✋ Jen pro adminy.\n\n${errorGif}`);
         }
 
         const user = message.mentions.users.first();
-        if (!user) return message.channel.send('Musíš označit uživatele. Formát: `m!rate [@user] [hodnocení]`');
+        if (!user) return message.channel.send(`Bruh, koho mám jako hodnotit? Musíš někoho @označit! 🤔\n\n${errorGif}`);
         
         if (user.id === message.author.id) {
-            return message.channel.send('Nemůžeš hodnotit sám sebe.');
+            return message.channel.send(`Snažíš se sám sobě dát 10/10, co? Hezký pokus, ale takhle to nefunguje. 😂\n\n${errorGif}`);
         }
         
         const rating = parseInt(args[1]);
-        if (isNaN(rating) || rating < 0 || rating > 10) return message.channel.send('Hodnocení musí být číslo od 0 do 10.');
+        if (isNaN(rating) || rating < 0 || rating > 10) return message.channel.send(`Stupnice je 0-10, bro. Ani víc, ani míň. 🔢\n\n${errorGif}`);
         
         if (!ratings[user.id]) ratings[user.id] = [];
         
@@ -100,7 +104,7 @@ client.on('messageCreate', async message => {
         
         try {
             if (!message.guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-                return message.channel.send("Chyba: Nemám oprávnění spravovat role. Prosím, zkontroluj má oprávnění.");
+                return message.channel.send(`Chyba: Nemám oprávnění spravovat role. Prosím, zkontroluj má oprávnění.\n\n${errorGif}`);
             }
             
             const member = await message.guild.members.fetch(user.id);
@@ -129,7 +133,7 @@ client.on('messageCreate', async message => {
         if (message.mentions.everyone) {
             const userIds = Object.keys(ratings);
 
-            if (userIds.length === 0) return message.channel.send('Zatím nikdo nebyl hodnocen, síň slávy je prázdná! 텅텅');
+            if (userIds.length === 0) return message.channel.send(`Zatím nikdo nebyl hodnocen, síň slávy je prázdná! 텅텅\n\n${errorGif}`);
 
             userIds.sort((a, b) => {
                 const avgA = ratings[a].reduce((sum, r) => sum + r, 0) / ratings[a].length;
@@ -137,13 +141,12 @@ client.on('messageCreate', async message => {
                 return avgB - avgA;
             });
             
-            // ===== NOVÝ "COOL" EMBED ZDE =====
             const scoreEmbed = new EmbedBuilder()
-                .setColor('#5865F2') // Discord "Blurple" barva
+                .setColor('#5865F2')
                 .setTitle('✨🏆 SÍŇ SLÁVY 🏆✨')
-                .setDescription('*Průměr se počítá z posledních max. 10 hodnocení.*\n\n')
+                .setDescription('Udržuj si skóre nad **9.0** a získáš přístup do 👑 | VIP kanálu pro volání na streamech!\n\n')
                 .setTimestamp()
-                .setFooter({ text: 'Pokračujte v hodnocení a dostaňte se na vrchol! 🚀' });
+                .setFooter({ text: 'Vaše chování ovlivňuje vaše skóre. Buďte v pohodě! 😉' });
             
             let leaderboardString = '';
             let rank = 1;
@@ -155,7 +158,7 @@ client.on('messageCreate', async message => {
                 try {
                     const member = await message.guild.members.fetch(userId);
                     if (member && member.roles.cache.has(roleId)) {
-                        roleIndicator = ' 👑'; // Korunka pro majitele role
+                        roleIndicator = ' 👑';
                     }
                 } catch (error) { /* Ignorujeme chyby */ }
 
@@ -169,7 +172,7 @@ client.on('messageCreate', async message => {
                 rank++;
             }
 
-            if (leaderboardString.length > 3000) { // Snížení limitu pro jistotu
+            if (leaderboardString.length > 3000) {
                 leaderboardString = leaderboardString.substring(0, 2990) + '...';
             }
             
@@ -183,9 +186,9 @@ client.on('messageCreate', async message => {
         const userRatings = ratings[targetUser.id];
         if (!userRatings || userRatings.length === 0) {
             if (targetUser.id === message.author.id) {
-                return message.channel.send(`Zatím nemáš žádné hodnocení, kámo! 🤷`);
+                return message.channel.send(`Zatím nemáš žádné hodnocení, kámo! 🤷\n\n${errorGif}`);
             } else {
-                return message.channel.send(`Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`);
+                return message.channel.send(`Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜\n\n${errorGif}`);
             }
         }
 
@@ -199,4 +202,16 @@ client.on('messageCreate', async message => {
     }
 });
 
-client.login(process.env.BOT_TOKEN);
+client.login(process.env.BOT_TOKEN);```
+
+### Co se změnilo:
+
+1.  **Definice GIFu:** Na začátku kódu jsem přidal konstantu `errorGif`, která obsahuje odkaz na tvůj GIF. Díky tomu ho můžeme snadno použít na více místech a v budoucnu ho jednoduše změnit.
+    ```javascript
+    const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
+    ```
+2.  **Přidání do zpráv:** Ke každé chybové hlášce, která jde uživateli (např. špatný příkaz, nedostatečná práva), jsem na konec textu přidal `\n\n${errorGif}`.
+    *   `\n\n` vytvoří dva nové řádky, aby byl GIF oddělený od textu.
+    *   `${errorGif}` vloží odkaz na GIF. Discord tento odkaz automaticky rozpozná a zobrazí GIF v chatu.
+
+Teď bude každá chyba doprovázena patřičnou "womp womp" reakcí.
