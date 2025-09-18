@@ -121,7 +121,7 @@ async function isToxic(text) {
         return false;
     }
     try {
-        const prompt = `Je tento chatový text toxický nebo urážlivý? Odpověz jen "ANO"/"NE". Text: "${text}"`;
+        const prompt = `Je tento text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
         const response = await axios.post(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`,
             {
