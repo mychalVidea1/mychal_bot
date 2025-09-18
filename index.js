@@ -1,9 +1,7 @@
 require('dotenv').config();
-
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
-
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -12,7 +10,6 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildModeration
     ],
-    // DŮLEŽITÉ: Přidali jsme Partials.Message pro spolehlivé sledování editací
     partials: [Partials.Channel, Partials.GuildMember, Partials.Message]
 });
 
@@ -21,7 +18,6 @@ const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
-
 const ownerRoleId = '875091178322812988';
 const activityChannelId = '875097279650992128';
 const filterWhitelistChannelId = '875093420090216499';
@@ -31,7 +27,8 @@ const aiModerationChannelIds = ['875097279650992128', '1261094481415897128', '12
 const MAX_WORDS_FOR_AI = 50;
 const COOLDOWN_SECONDS = 5;
 
-// ===== VAŠE STRUKTURA SLOV (OPRAVENÁ SYNTAX) =====
+const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
+
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
     'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri'
@@ -261,6 +258,15 @@ client.on('messageCreate', async message => {
         const reply = await message.channel.send(scoreMsg);
         setTimeout(() => reply.delete().catch(() => {}), 10000);
     }
+});
+
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+    if (newMessage.partial) {
+        try { await newMessage.fetch(); } catch { return; }
+    }
+    if (newMessage.author.bot || !newMessage.guild) return;
+    if (oldMessage.content === newMessage.content) return;
+    await moderateMessage(newMessage);
 });
 
 client.login(process.env.BOT_TOKEN);
