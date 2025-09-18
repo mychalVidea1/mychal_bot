@@ -3,6 +3,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -35,12 +36,12 @@ const level3Words = [
     'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri'
 ];
 const level2Words = [
-    'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus',
-    'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'zkurvysyn',
-    'kurva', 'kurvo', 'kurvy', 'čurák', 'šukat', 'mrdat',
+    'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus',
+    'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn',
+    'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat',
     'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker',
     'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
-    'fuck', 'f*ck', 'fck', 'fuk'
+    'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
     'debil', 'blbec', 'kretén',
@@ -49,8 +50,13 @@ const level1Words = [
 ];
 // ==============================================================================
 
+// ===== STRUKTURY PRO OPTIMALIZACI A PŘEPÍNÁNÍ MODELŮ =====
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
+let activeModel = 'gemini-2.5-flash-lite';
+const fallbackModel = 'gemini-1.5-flash-latest';
+let hasSwitchedToFallback = false;
+
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
 const messageCountsFilePath = `${dataDirectory}/message_counts.json`;
@@ -71,22 +77,39 @@ cleanupOldRatings();
 
 async function isToxic(text) {
     if (!geminiApiKey) return false;
+    const prompt = `Je tento text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
+    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
+
     try {
-        const prompt = `Je tento text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
-        const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`,
-            { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } }
-        );
+        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${geminiApiKey}`, requestBody);
         const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
-        console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`);
+        console.log(`Gemini analýza (${activeModel}) pro text "${text}": Odpověď - ${result}`);
         return result.includes("ANO");
     } catch (error) {
         const status = error.response ? error.response.status : null;
         if (status === 429) {
-            console.error("!!! DOSAŽEN DENNÍ LIMIT GEMINI API !!!");
+            console.error(`!!! DOSAŽEN LIMIT PRO MODEL ${activeModel} !!!`);
+            if (!hasSwitchedToFallback) {
+                console.warn(`Přepínám na záložní model: ${fallbackModel}`);
+                activeModel = fallbackModel;
+                hasSwitchedToFallback = true;
+                try {
+                    const channel = await client.channels.fetch(logChannelId);
+                    if (channel) channel.send(`🟡 **VAROVÁNÍ:** Došel denní limit pro primární AI model. Automaticky přepínám na záložní model.`);
+                } catch (err) {}
+                return isToxic(text);
+            }
             return 'API_LIMIT';
         }
-        console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data.error : error.message);
+        if (status === 404) { // Fallback pro případ, že by 2.5 dočasně zmizel
+             if (!hasSwitchedToFallback) {
+                console.warn(`Model ${activeModel} nebyl nalezen (404). Přepínám na záložní model: ${fallbackModel}`);
+                activeModel = fallbackModel;
+                hasSwitchedToFallback = true;
+                return isToxic(text);
+             }
+        }
+        console.error(`Chyba při komunikaci s Gemini API (${activeModel}):`, error.response ? error.response.data.error : error.message);
         return false;
     }
 }
@@ -152,7 +175,7 @@ client.once('clientReady', async () => {
     try {
         const channel = await client.channels.fetch(startupChannelId);
         if (channel) {
-            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze pročištěna. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
+            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze načtena. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) {}
@@ -289,6 +312,7 @@ client.on('messageCreate', async message => {
         setTimeout(() => reply.delete().catch(() => {}), 10000);
     }
 });
+
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) {
         try { await newMessage.fetch(); } catch { return; }
@@ -297,4 +321,5 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
+
 client.login(process.env.BOT_TOKEN);
