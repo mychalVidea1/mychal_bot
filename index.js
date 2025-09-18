@@ -12,7 +12,8 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildModeration
     ],
-    partials: [Partials.Channel, Partials.GuildMember]
+    // DŮLEŽITÉ: Přidali jsme Partials.Message pro spolehlivé sledování editací
+    partials: [Partials.Channel, Partials.GuildMember, Partials.Message]
 });
 
 // ======================= NASTAVENÍ =======================
@@ -50,7 +51,6 @@ const level1Words = [
 ];
 // ==============================================================================
 
-// ===== STRUKTURY PRO OPTIMALIZACI =====
 const userCooldowns = new Map();
 let isApiLimitReached = false;
 
@@ -71,37 +71,52 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if 
 function addRating(userId, rating, reason = "") { if (!ratings[userId]) ratings[userId] = []; ratings[userId].push(rating); if (ratings[userId].length > 10) ratings[userId].shift(); saveRatings(); console.log(`Uživatel ${userId} dostal hodnocení ${rating}. ${reason}`);}
 function cleanupOldRatings() { let changed = false; for (const userId in ratings) { if (ratings[userId].length > 10) { ratings[userId] = ratings[userId].slice(-10); changed = true; } } if (changed) saveRatings(); }
 cleanupOldRatings();
+async function isToxic(text) { if (!geminiApiKey || isApiLimitReached) return false; try { const prompt = `Je tento chatový text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`; const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`, { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 }, }); const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase(); console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`); return result.includes("ANO"); } catch (error) { const status = error.response ? error.response.status : null; if (status === 429) { if (!isApiLimitReached) { isApiLimitReached = true; console.error("!!! DOSAŽEN DENNÍ LIMIT GEMINI API !!!"); try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🔴 **CHYBA: Došel denní limit pro AI!**\nZprávy dočasně nebudou ověřovány umělou inteligencí. Limit se resetuje o půlnoci pacifického času (ráno/dopoledne našeho času).`); } catch (err) {} } } else { console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data.error : error.message); } return false; } }
 
-async function isToxic(text) {
-    if (!geminiApiKey || isApiLimitReached) return false;
-    try {
-        const prompt = `Je tento chatový text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
-        const response = await axios.post(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`,
-            {
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 5 },
-            }
-        );
-        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
-        console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`);
-        return result.includes("ANO");
-    } catch (error) {
-        const status = error.response ? error.response.status : null;
-        if (status === 429) {
-            if (!isApiLimitReached) {
-                isApiLimitReached = true;
-                console.error("!!! DOSAŽEN DENNÍ LIMIT GEMINI API !!!");
-                try {
-                    const channel = await client.channels.fetch(logChannelId);
-                    if (channel) channel.send(`🔴 **CHYBA: Došel denní limit pro AI!**\nZprávy dočasně nebudou ověřovány umělou inteligencí. Limit se resetuje o půlnoci pacifického času (ráno/dopoledne našeho času).`);
-                } catch (err) {}
-            }
-        } else {
-            console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data.error : error.message);
+async function moderateMessage(message) {
+    if (!message.guild || !message.author || message.author.bot) return false;
+    const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+    if (!member || member.roles.cache.has(ownerRoleId)) return false;
+    
+    if (aiModerationChannelIds.includes(message.channel.id)) {
+        const messageContent = message.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
+        if (level3Words.some(word => messageContent.includes(word))) {
+            ratings[message.author.id] = [0]; saveRatings();
+            await updateRoleStatus(message.author.id, message.guild, message);
+            try { await message.delete(); const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil zakázané slovo. Jeho hodnocení bylo **resetováno na 0**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+            return true;
         }
-        return false;
+        if (level2Words.some(word => messageContent.includes(word))) {
+            addRating(message.author.id, -3, "Důvod: Hrubá urážka");
+            await updateRoleStatus(message.author.id, message.guild, message);
+            try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, za hrubé chování ti byl snížen rating o **3 body**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
+            return true;
+        }
+        if (level1Words.some(word => messageContent.includes(word))) {
+            addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
+            await updateRoleStatus(message.author.id, message.guild, message);
+            try {
+                const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl snížen rating o **1 bod**.`);
+                setTimeout(() => warningReply.delete().catch(() => {}), 10000);
+            } catch (err) {}
+            return true;
+        }
+        const wordCount = message.content.split(' ').length;
+        if (wordCount <= MAX_WORDS_FOR_AI) {
+            const now = Date.now();
+            const lastCheck = userCooldowns.get(message.author.id);
+            if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
+                userCooldowns.set(message.author.id, now);
+                if (await isToxic(message.content)) {
+                    addRating(message.author.id, -2, `Důvod: Toxická zpráva (detekováno AI)`);
+                    await updateRoleStatus(message.author.id, message.guild, message);
+                    try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvá zpráva byla vyhodnocena jako nevhodná a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+                    return true;
+                }
+            }
+        }
     }
+    return false;
 }
 
 client.once('clientReady', async () => {
@@ -117,9 +132,9 @@ client.once('clientReady', async () => {
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
-    const oldTimeout = oldMember.communicationDisabledUntilTimestamp;
-    const newTimeout = newMember.communicationDisabledUntilTimestamp;
-    if ((!oldTimeout && newTimeout) || (newTimeout > oldTimeout)) {
+    const oldTimeoutEnd = oldMember.communicationDisabledUntilTimestamp;
+    const newTimeoutEnd = newMember.communicationDisabledUntilTimestamp;
+    if (newTimeoutEnd && newTimeoutEnd > Date.now() && newTimeoutEnd !== oldTimeoutEnd) {
         addRating(newMember.id, -3, "Důvod: Timeout");
         await updateRoleStatus(newMember.id, newMember.guild, null);
         try {
@@ -141,58 +156,11 @@ client.on('guildBanAdd', async (ban) => {
 
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
-
+    if (otherBotPrefixes.some(p => message.content.startsWith(p))) return;
+    
     if (!message.content.startsWith(prefix)) {
-        if (message.member && message.member.roles.cache.has(ownerRoleId)) return;
-        
-        if (aiModerationChannelIds.includes(message.channel.id)) {
-            const messageContent = message.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
-
-            if (level3Words.some(word => messageContent.includes(word))) {
-                ratings[message.author.id] = [0]; saveRatings();
-                await updateRoleStatus(message.author.id, message.guild, message);
-                try { await message.delete(); const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil zakázané slovo. Jeho hodnocení bylo **resetováno na 0**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
-                return;
-            }
-            if (level2Words.some(word => messageContent.includes(word))) {
-                addRating(message.author.id, -3, "Důvod: Hrubá urážka");
-                await updateRoleStatus(message.author.id, message.guild, message);
-                try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, za hrubé chování ti byl snížen rating o **3 body**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
-                return;
-            }
-            if (level1Words.some(word => messageContent.includes(word))) {
-                addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
-                await updateRoleStatus(message.author.id, message.guild, message);
-                try {
-                    const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl snížen rating o **1 bod**.`);
-                    setTimeout(() => warningReply.delete().catch(() => {}), 10000);
-                } catch (err) {}
-                return;
-            }
-
-            const wordCount = message.content.split(' ').length;
-            if (wordCount <= MAX_WORDS_FOR_AI) {
-                const now = Date.now();
-                const lastCheck = userCooldowns.get(message.author.id);
-
-                if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
-                    userCooldowns.set(message.author.id, now);
-                    
-                    if (await isToxic(message.content)) {
-                        addRating(message.author.id, -2, `Důvod: Toxická zpráva (detekováno AI)`);
-                        await updateRoleStatus(message.author.id, message.guild, message);
-                        try {
-                            await message.delete();
-                            const warningMsg = await message.channel.send(`<@${message.author.id}>, tvá zpráva byla vyhodnocena jako nevhodná a tvé hodnocení bylo sníženo.`);
-                            setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
-                        } catch (err) {}
-                        return;
-                    }
-                }
-            }
-        }
-
-        if (message.channel.id === activityChannelId) {
+        const wasModerated = await moderateMessage(message);
+        if (!wasModerated && message.channel.id === activityChannelId) {
             if (!messageCounts[message.author.id]) messageCounts[message.author.id] = 0;
             messageCounts[message.author.id]++;
             if (messageCounts[message.author.id] >= 10) {
