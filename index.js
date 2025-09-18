@@ -72,7 +72,7 @@ cleanupOldRatings();
 async function isToxic(text) {
     if (!geminiApiKey) return false;
     try {
-        const prompt = `Je tento chatový text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
+        const prompt = `Je tento text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
         const response = await axios.post(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`,
             { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } }
@@ -101,20 +101,20 @@ async function moderateMessage(message) {
         if (level3Words.some(word => messageContent.includes(word))) {
             ratings[message.author.id] = [0]; saveRatings();
             await updateRoleStatus(message.author.id, message.guild, message);
-            try { await message.delete(); const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil zakázané slovo. Jeho hodnocení bylo **resetováno na 0**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+            try { await message.delete(); const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil přísně zakázané slovo. Tvoje hodnocení bylo **resetováno na 0**!`); setTimeout(() => warningMsg.delete().catch(() => {}), 20000); } catch (err) {}
             return true;
         }
         if (level2Words.some(word => messageContent.includes(word))) {
             addRating(message.author.id, -3, "Důvod: Hrubá urážka");
             await updateRoleStatus(message.author.id, message.guild, message);
-            try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, za hrubé chování ti byl snížen rating o **3 body**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
+            try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, za toto chování ti byl snížen rating o **3 body**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
         if (level1Words.some(word => messageContent.includes(word))) {
             addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
             await updateRoleStatus(message.author.id, message.guild, message);
             try {
-                const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl snížen rating o **1 bod**.`);
+                const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl lehce snížen rating.`);
                 setTimeout(() => warningReply.delete().catch(() => {}), 10000);
             } catch (err) {}
             return true;
@@ -129,15 +129,15 @@ async function moderateMessage(message) {
                 if (toxicityResult === true) {
                     addRating(message.author.id, -2, `Důvod: Toxická zpráva (detekováno AI)`);
                     await updateRoleStatus(message.author.id, message.guild, message);
-                    try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvá zpráva byla vyhodnocena jako nevhodná a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+                    try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvá zpráva byla nevhodná a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
                     return true;
                 } else if (toxicityResult === 'API_LIMIT') {
                     const now = Date.now();
                     if (now - lastLimitNotificationTimestamp > NOTIFICATION_COOLDOWN_MINUTES * 60 * 1000) {
                         lastLimitNotificationTimestamp = now;
                         try {
-                            const reply = await message.reply(`Tato zpráva nemohla být ověřena umělou inteligencí, protože byl dočasně dosažen denní limit. Resetuje se o půlnoci PST.`);
-                            setTimeout(() => reply.delete().catch(() => {}), 20000);
+                            const reply = await message.reply(`AI nemohla tuto zprávu ověřit, protože si dala šlofíka na pár hodin!`);
+                            setTimeout(() => reply.delete().catch(() => {}), 300000);
                         } catch(err) {}
                     }
                 }
@@ -204,7 +204,6 @@ client.on('messageCreate', async message => {
         }
         return; 
     }
-
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
     
@@ -212,25 +211,25 @@ client.on('messageCreate', async message => {
         try { await message.delete(); } catch (err) {}
         const errorEmbed = new EmbedBuilder().setImage(errorGif);
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            const reply = await message.channel.send({ content: 'Na tohle nemáš oprávnění, kámo. ✋ Jen pro adminy.', embeds: [errorEmbed] });
+            const reply = await message.channel.send({ content: 'Na tohle nemáš oprávnění, kámo. ✋', embeds: [errorEmbed] });
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
         const user = message.mentions.users.first();
         if (!user) {
-            const reply = await message.channel.send({ content: 'Bruh, koho mám jako hodnotit? Musíš někoho @označit! 🤔', embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 10000);
+            const reply = await message.channel.send({ content: 'Bruh, koho mám hodnotit? Musíš někoho @označit! 🤔', embeds: [errorEmbed] });
+            setTimeout(() => reply.delete().catch(() => {}), 15000);
             return;
         }
         if (user.id === message.author.id) {
-            const reply = await message.channel.send({ content: 'Snažíš se sám sobě dát 10/10, co? Hezký pokus, ale takhle to nefunguje. 😂', embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 10000);
+            const reply = await message.channel.send({ content: 'Snažíš se sám sobě dát 10/10, co? Hezký pokus, ale zastavil jsem tě v čas. 😂', embeds: [errorEmbed] });
+            setTimeout(() => reply.delete().catch(() => {}), 15000);
             return;
         }
         const rating = parseFloat(args[1]); 
         if (isNaN(rating) || rating < -10 || rating > 10) {
-            const reply = await message.channel.send({ content: 'Stupnice je -10 až 10, bro. Ani víc, ani míň. 🔢', embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 10000);
+            const reply = await message.channel.send({ content: 'Stupnice je 1 až 10. 🔢', embeds: [errorEmbed] });
+            setTimeout(() => reply.delete().catch(() => {}), 15000);
             return;
         }
         addRating(user.id, rating, `Ručně adminem ${message.author.tag}`);
@@ -282,15 +281,14 @@ client.on('messageCreate', async message => {
         const averageRating = calculateAverage(targetUser.id);
         let scoreMsg;
         if (targetUser.id === message.author.id) {
-            scoreMsg = `🌟 <@${targetUser.id}> Tvé průměrné hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
+            scoreMsg = `🌟 <@${targetUser.id}> Tvé hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
         } else {
-            scoreMsg = `🌟 Průměrné hodnocení uživatele <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
+            scoreMsg = `🌟 Průměrné hodnocení <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
         }
         const reply = await message.channel.send(scoreMsg);
         setTimeout(() => reply.delete().catch(() => {}), 10000);
     }
 });
-
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) {
         try { await newMessage.fetch(); } catch { return; }
@@ -299,5 +297,4 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
-
 client.login(process.env.BOT_TOKEN);
