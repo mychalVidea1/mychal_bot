@@ -87,27 +87,19 @@ async function isToxic(text) {
         return result.includes("ANO");
     } catch (error) {
         const status = error.response ? error.response.status : null;
-        if (status === 429) {
-            console.error(`!!! DOSAŽEN LIMIT PRO MODEL ${activeModel} !!!`);
-            if (!hasSwitchedToFallback) {
-                console.warn(`Přepínám na záložní model: ${fallbackModel}`);
-                activeModel = fallbackModel;
-                hasSwitchedToFallback = true;
-                try {
-                    const channel = await client.channels.fetch(logChannelId);
-                    if (channel) channel.send(`🟡 **VAROVÁNÍ:** Došel denní limit pro primární AI model. Automaticky přepínám na záložní model.`);
-                } catch (err) {}
-                return isToxic(text);
-            }
-            return 'API_LIMIT';
+        if ((status === 429 || status === 404) && !hasSwitchedToFallback) {
+            console.warn(`Model ${activeModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackModel}`);
+            activeModel = fallbackModel;
+            hasSwitchedToFallback = true;
+            try {
+                const channel = await client.channels.fetch(logChannelId);
+                if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model selhal. Automaticky přepínám na záložní model.`);
+            } catch (err) {}
+            return isToxic(text);
         }
-        if (status === 404) { // Fallback pro případ, že by 2.5 dočasně zmizel
-             if (!hasSwitchedToFallback) {
-                console.warn(`Model ${activeModel} nebyl nalezen (404). Přepínám na záložní model: ${fallbackModel}`);
-                activeModel = fallbackModel;
-                hasSwitchedToFallback = true;
-                return isToxic(text);
-             }
+        if (status === 429) {
+            console.error(`!!! DOSAŽEN LIMIT I PRO ZÁLOŽNÍ MODEL ${activeModel} !!!`);
+            return 'API_LIMIT';
         }
         console.error(`Chyba při komunikaci s Gemini API (${activeModel}):`, error.response ? error.response.data.error : error.message);
         return false;
@@ -143,7 +135,7 @@ async function moderateMessage(message) {
             return true;
         }
         const wordCount = message.content.split(' ').length;
-        if (wordCount <= MAX_WORDS_FOR_AI) {
+        if (wordCount <= MAX_WORDS_FOR_AI && message.content.length >= 4) {
             const now = Date.now();
             const lastCheck = userCooldowns.get(message.author.id);
             if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
@@ -175,7 +167,7 @@ client.once('clientReady', async () => {
     try {
         const channel = await client.channels.fetch(startupChannelId);
         if (channel) {
-            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze načtena. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
+            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze pročištěna. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) {}
@@ -240,7 +232,7 @@ client.on('messageCreate', async message => {
         }
         const user = message.mentions.users.first();
         if (!user) {
-            const reply = await message.channel.send({ content: 'Bruh, koho mám hodnotit? Musíš někoho @označit! 🤔', embeds: [errorEmbed] });
+            const reply = await message.channel.send({ content: 'Bruh, koho mám jako hodnotit? Musíš někoho @označit! 🤔', embeds: [errorEmbed] });
             setTimeout(() => reply.delete().catch(() => {}), 15000);
             return;
         }
