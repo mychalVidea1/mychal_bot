@@ -30,14 +30,10 @@ const aiModerationChannelIds = ['875097279650992128', '1261094481415897128', '12
 const MAX_WORDS_FOR_AI = 50;
 
 // ===== VAŠE STRUKTURA SLOV (OPRAVENÁ SYNTAX) =====
-
-// Úroveň 3: Absolutní nula tolerance -> Reset na 0 bodů
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
     'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri'
 ];
-
-// Úroveň 2: Hrubé urážky a vulgarismy -> Trest -3 body
 const level2Words = [
     'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus',
     'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn',
@@ -46,15 +42,12 @@ const level2Words = [
     'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
-
-// Úroveň 1: Běžné nadávky a "lehčí" vulgarismy -> Trest -1 bod, POUZE VAROVÁNÍ
 const level1Words = [
     'kokot', 'kokote', 'kkt', 'debil', 'blbec', 'kretén',
     'hajzl', 'sračka', 'srát', 'chcát', 'doprdele', 'mf',
     'fakin', 'shit', 'sh*t', 'sht', 'piss'
 ];
 // ==============================================================================
-
 
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
@@ -73,7 +66,7 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if 
 function addRating(userId, rating, reason = "") { if (!ratings[userId]) ratings[userId] = []; ratings[userId].push(rating); if (ratings[userId].length > 10) ratings[userId].shift(); saveRatings(); console.log(`Uživatel ${userId} dostal hodnocení ${rating}. ${reason}`);}
 function cleanupOldRatings() { let changed = false; for (const userId in ratings) { if (ratings[userId].length > 10) { ratings[userId] = ratings[userId].slice(-10); changed = true; } } if (changed) saveRatings(); }
 cleanupOldRatings();
-async function isToxic(text) { if (!geminiApiKey) { return false; } try { const prompt = `Je tento chatový text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`; const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`, { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 }, }); const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase(); console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`); return result.includes("ANO"); } catch (error) { console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data.error : error.message); return false; } }
+async function isToxic(text) { if (!geminiApiKey) { return false; } try { const prompt = `Je tento text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`; const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`, { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 }, }); const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase(); console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`); return result.includes("ANO"); } catch (error) { console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data.error : error.message); return false; } }
 
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
