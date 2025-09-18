@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
@@ -26,7 +27,7 @@ const logChannelId = '1025689879973203968';
 const aiModerationChannelIds = ['875097279650992128', '1261094481415897128', '1275999194313785415', '1322337083745898616'];
 const MAX_WORDS_FOR_AI = 50;
 const COOLDOWN_SECONDS = 5;
-
+const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 
 const level3Words = [
@@ -34,23 +35,22 @@ const level3Words = [
     'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri'
 ];
 const level2Words = [
-    'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus',
-    'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn',
-    'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat',
+    'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus',
+    'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'zkurvysyn',
+    'kurva', 'kurvo', 'kurvy', 'čurák', 'šukat', 'mrdat',
     'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker',
     'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
-    'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
+    'fuck', 'f*ck', 'fck', 'fuk'
 ];
 const level1Words = [
-    'kokot', 'kokote', 'kkt', 'debil', 'blbec', 'kretén',
-    'hajzl', 'sračka', 'srát', 'chcát', 'doprdele', 'mf',
-    'fakin', 'shit', 'sh*t', 'sht', 'piss'
+    'debil', 'blbec', 'kretén',
+    'sračka', 'doprdele', 'píčo', 'pičo',
+    'fakin', 'curak', 'píča',
 ];
 // ==============================================================================
 
 const userCooldowns = new Map();
-let isApiLimitReached = false;
-
+let lastLimitNotificationTimestamp = 0;
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
 const messageCountsFilePath = `${dataDirectory}/message_counts.json`;
@@ -68,7 +68,28 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if 
 function addRating(userId, rating, reason = "") { if (!ratings[userId]) ratings[userId] = []; ratings[userId].push(rating); if (ratings[userId].length > 10) ratings[userId].shift(); saveRatings(); console.log(`Uživatel ${userId} dostal hodnocení ${rating}. ${reason}`);}
 function cleanupOldRatings() { let changed = false; for (const userId in ratings) { if (ratings[userId].length > 10) { ratings[userId] = ratings[userId].slice(-10); changed = true; } } if (changed) saveRatings(); }
 cleanupOldRatings();
-async function isToxic(text) { if (!geminiApiKey || isApiLimitReached) return false; try { const prompt = `Je tento chatový text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`; const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`, { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 }, }); const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase(); console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`); return result.includes("ANO"); } catch (error) { const status = error.response ? error.response.status : null; if (status === 429) { if (!isApiLimitReached) { isApiLimitReached = true; console.error("!!! DOSAŽEN DENNÍ LIMIT GEMINI API !!!"); try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🔴 **CHYBA: Došel denní limit pro AI!**\nZprávy dočasně nebudou ověřovány umělou inteligencí. Limit se resetuje o půlnoci pacifického času (ráno/dopoledne našeho času).`); } catch (err) {} } } else { console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data.error : error.message); } return false; } }
+
+async function isToxic(text) {
+    if (!geminiApiKey) return false;
+    try {
+        const prompt = `Je tento chatový text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
+        const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`,
+            { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } }
+        );
+        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        console.log(`Gemini analýza pro text "${text}": Odpověď - ${result}`);
+        return result.includes("ANO");
+    } catch (error) {
+        const status = error.response ? error.response.status : null;
+        if (status === 429) {
+            console.error("!!! DOSAŽEN DENNÍ LIMIT GEMINI API !!!");
+            return 'API_LIMIT';
+        }
+        console.error("Chyba při komunikaci s Gemini API:", error.response ? error.response.data.error : error.message);
+        return false;
+    }
+}
 
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
@@ -104,11 +125,21 @@ async function moderateMessage(message) {
             const lastCheck = userCooldowns.get(message.author.id);
             if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
                 userCooldowns.set(message.author.id, now);
-                if (await isToxic(message.content)) {
+                const toxicityResult = await isToxic(message.content);
+                if (toxicityResult === true) {
                     addRating(message.author.id, -2, `Důvod: Toxická zpráva (detekováno AI)`);
                     await updateRoleStatus(message.author.id, message.guild, message);
                     try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvá zpráva byla vyhodnocena jako nevhodná a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
                     return true;
+                } else if (toxicityResult === 'API_LIMIT') {
+                    const now = Date.now();
+                    if (now - lastLimitNotificationTimestamp > NOTIFICATION_COOLDOWN_MINUTES * 60 * 1000) {
+                        lastLimitNotificationTimestamp = now;
+                        try {
+                            const reply = await message.reply(`Tato zpráva nemohla být ověřena umělou inteligencí, protože byl dočasně dosažen denní limit. Resetuje se o půlnoci PST.`);
+                            setTimeout(() => reply.delete().catch(() => {}), 20000);
+                        } catch(err) {}
+                    }
                 }
             }
         }
