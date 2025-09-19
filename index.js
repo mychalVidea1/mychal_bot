@@ -31,9 +31,7 @@ const MIN_CHARS_FOR_AI = 4;
 const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
-
-// ===== OPRAVENÝ REGULÁRNÍ VÝRAZ PRO DETEKCI EMOJI SPAMU =====
-const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){5,}/;
+const emojiSpamRegex = /(?:(?:\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])|<a?:\w+:\d+>)\s*){5,}/;
 
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
@@ -48,7 +46,7 @@ const level2Words = [
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
-    'debil', 'kretén',
+    'debil', 'blbec', 'kretén',
     'sračka', 'doprdele', 'píčo', 'pičo',
     'fakin', 'curak', 'píča',
 ];
@@ -56,8 +54,10 @@ const level1Words = [
 
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
-let activeModel = 'gemini-2.5-flash-lite';
-const fallbackModel = 'gemini-1.5-flash-latest';
+let activeTextModel = 'gemini-2.5-flash-lite';
+const fallbackTextModel = 'gemini-1.5-flash-latest';
+// ===== ZMĚNA ZDE: DEFINICE MODELU PRO OBRÁZKY =====
+const imageModel = 'gemini-2.5-flash';
 let hasSwitchedToFallback = false;
 
 const dataDirectory = '/data';
@@ -77,7 +77,63 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if 
 function addRating(userId, rating, reason = "") { if (!ratings[userId]) ratings[userId] = []; ratings[userId].push(rating); if (ratings[userId].length > 10) ratings[userId].shift(); saveRatings(); console.log(`Uživatel ${userId} dostal hodnocení ${rating}. ${reason}`);}
 function cleanupOldRatings() { let changed = false; for (const userId in ratings) { if (ratings[userId].length > 10) { ratings[userId] = ratings[userId].slice(-10); changed = true; } } if (changed) saveRatings(); }
 cleanupOldRatings();
-async function isToxic(text) { if (!geminiApiKey) return false; const prompt = `Je tento text toxický nebo urážlivý v kontextu chatu? Toxický = obsahuje nenávist, vyhrožování, šikanu nebo urážku mířenou proti uživateli. Není toxický = používá sprostá slova jen jako výraz emocí nebo mezi kamarády bez útočného záměru. Odpověz jen "ANO" nebo "NE". Nic víc. Text: "${text}"`; const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } }; try { const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${geminiApiKey}`, requestBody); const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase(); console.log(`Gemini analýza (${activeModel}) pro text "${text}": Odpověď - ${result}`); return result.includes("ANO"); } catch (error) { const status = error.response ? error.response.status : null; if ((status === 429 || status === 404) && !hasSwitchedToFallback) { console.warn(`Model ${activeModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackModel}`); activeModel = fallbackModel; hasSwitchedToFallback = true; try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model selhal. Automaticky přepínám na záložní model.`); } catch (err) {} return isToxic(text); } if (status === 429) { console.error(`!!! DOSAŽEN LIMIT I PRO ZÁLOŽNÍ MODEL ${activeModel} !!!`); return 'API_LIMIT'; } console.error(`Chyba při komunikaci s Gemini API (${activeModel}):`, error.response ? error.response.data.error : error.message); return false; } }
+
+async function analyzeText(text) {
+    if (!geminiApiKey) return false;
+    const prompt = `Je tento text toxický nebo urážlivý v kontextu chatu? Toxický = obsahuje nenávist, vyhrožování, šikanu nebo urážku mířenou proti uživateli. Není toxický = používá sprostá slova jen jako výraz emocí nebo mezi kamarády bez útočného záměru. Odpověz jen "ANO" nebo "NE". Nic víc. Text: "${text}"`;
+    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
+    try {
+        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
+        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        console.log(`Gemini textová analýza (${activeTextModel}) pro text "${text}": Odpověď - ${result}`);
+        return result.includes("ANO");
+    } catch (error) {
+        const status = error.response ? error.response.status : null;
+        if ((status === 429 || status === 404) && !hasSwitchedToFallback) {
+            console.warn(`Model ${activeTextModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackTextModel}`);
+            activeTextModel = fallbackTextModel;
+            hasSwitchedToFallback = true;
+            try {
+                const channel = await client.channels.fetch(logChannelId);
+                if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model pro text selhal. Automaticky přepínám na záložní model.`);
+            } catch (err) {}
+            return analyzeText(text);
+        }
+        if (status === 429) { return 'API_LIMIT'; }
+        console.error(`Chyba při komunikaci s Gemini API (${activeTextModel}):`, error.response ? error.response.data.error : error.message);
+        return false;
+    }
+}
+
+async function analyzeImage(imageUrl) {
+    if (!geminiApiKey) return false;
+    try {
+        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+        const base64Image = Buffer.from(imageResponse.data, 'binary').toString('base64');
+        const mimeType = imageResponse.headers['content-type'];
+        if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) return false;
+
+        const prompt = 'Je tento obrázek nebo GIF nevhodný (NSFW, násilí, krev, urážlivý text)? Odpověz jen "ANO" nebo "NE". Nic víc.';
+        const requestBody = {
+            contents: [{
+                parts: [
+                    { text: prompt },
+                    { inline_data: { mime_type: mimeType, data: base64Image } }
+                ]
+            }],
+            generationConfig: { maxOutputTokens: 5 }
+        };
+        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
+        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        console.log(`Gemini obrázková analýza (${imageModel}) pro obrázek "${imageUrl}": Odpověď - ${result}`);
+        return result.includes("ANO");
+    } catch (error) {
+        const status = error.response ? error.response.status : null;
+        if (status === 429) { return 'API_LIMIT'; }
+        console.error(`Chyba při analýze obrázku (${imageModel}):`, error.response ? error.response.data.error : error.message);
+        return false;
+    }
+}
 
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
@@ -85,12 +141,24 @@ async function moderateMessage(message) {
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
     
     if (aiModerationChannelIds.includes(message.channel.id)) {
+        if (message.attachments.size > 0) {
+            const attachment = message.attachments.first();
+            const imageResult = await analyzeImage(attachment.url);
+            if (imageResult === true) {
+                addRating(message.author.id, -3, `Důvod: Nevhodný obrázek (detekováno AI)`);
+                await updateRoleStatus(message.author.id, message.guild, message);
+                try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+                return true;
+            } else if (imageResult === 'API_LIMIT') {
+                const now = Date.now();
+                if (now - lastLimitNotificationTimestamp > NOTIFICATION_COOLDOWN_MINUTES * 60 * 1000) {
+                    lastLimitNotificationTimestamp = now;
+                    try { const reply = await message.reply(`AI nemohla tento obrázek ověřit, protože si dala šlofíka na pár hodin!`); setTimeout(() => reply.delete().catch(() => {}), 300000); } catch(err) {}
+                }
+            }
+        }
         if (emojiSpamRegex.test(message.content)) {
-            try {
-                await message.delete();
-                const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`);
-                setTimeout(() => warningMsg.delete().catch(() => {}), 10000);
-            } catch (err) {}
+            try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
         const messageContent = message.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
@@ -109,19 +177,16 @@ async function moderateMessage(message) {
         if (level1Words.some(word => messageContent.includes(word))) {
             addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
             await updateRoleStatus(message.author.id, message.guild, message);
-            try {
-                const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl lehce snížen rating.`);
-                setTimeout(() => warningReply.delete().catch(() => {}), 10000);
-            } catch (err) {}
+            try { const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl lehce snížen rating.`); setTimeout(() => warningReply.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
         const wordCount = message.content.split(' ').length;
-        if (wordCount <= MAX_WORDS_FOR_AI && message.content.length >= MIN_CHARS_FOR_AI) {
+        if (wordCount > 0 && message.content.length >= MIN_CHARS_FOR_AI && wordCount <= MAX_WORDS_FOR_AI) {
             const now = Date.now();
             const lastCheck = userCooldowns.get(message.author.id);
             if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
                 userCooldowns.set(message.author.id, now);
-                const toxicityResult = await isToxic(message.content);
+                const toxicityResult = await analyzeText(message.content);
                 if (toxicityResult === true) {
                     addRating(message.author.id, -2, `Důvod: Toxická zpráva (detekováno AI)`);
                     await updateRoleStatus(message.author.id, message.guild, message);
@@ -131,10 +196,7 @@ async function moderateMessage(message) {
                     const now = Date.now();
                     if (now - lastLimitNotificationTimestamp > NOTIFICATION_COOLDOWN_MINUTES * 60 * 1000) {
                         lastLimitNotificationTimestamp = now;
-                        try {
-                            const reply = await message.reply(`AI nemohla tuto zprávu ověřit, protože si dala šlofíka na pár hodin!`);
-                            setTimeout(() => reply.delete().catch(() => {}), 300000);
-                        } catch(err) {}
+                        try { const reply = await message.reply(`AI nemohla tuto zprávu ověřit, protože si dala šlofíka na pár hodin!`); setTimeout(() => reply.delete().catch(() => {}), 300000); } catch(err) {}
                     }
                 }
             }
