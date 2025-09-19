@@ -27,9 +27,13 @@ const startupChannelId = '1005985776158388264';
 const logChannelId = '1025689879973203968';
 const aiModerationChannelIds = ['875097279650992128', '1261094481415897128', '1275999194313785415', '1322337083745898616'];
 const MAX_WORDS_FOR_AI = 50;
+const MIN_CHARS_FOR_AI = 4;
 const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
+
+// ===== NOVINKA: REGULÁRNÍ VÝRAZ PRO DETEKCI EMOJI SPAMU =====
+const emojiSpamRegex = /(?:(?:\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])|<a?:\w+:\d+>)\s*){5,}/;
 
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
@@ -44,13 +48,12 @@ const level2Words = [
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
-    'debil', 'kretén',
+    'debil', 'blbec', 'kretén',
     'sračka', 'doprdele', 'píčo', 'pičo',
     'fakin', 'curak', 'píča',
 ];
 // ==============================================================================
 
-// ===== STRUKTURY PRO OPTIMALIZACI A PŘEPÍNÁNÍ MODELŮ =====
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 let activeModel = 'gemini-2.5-flash-lite';
@@ -112,6 +115,16 @@ async function moderateMessage(message) {
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
     
     if (aiModerationChannelIds.includes(message.channel.id)) {
+        // ===== NOVÁ KONTROLA ZDE: EMOJI SPAM =====
+        if (emojiSpamRegex.test(message.content)) {
+            try {
+                await message.delete();
+                const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`);
+                setTimeout(() => warningMsg.delete().catch(() => {}), 10000);
+            } catch (err) {}
+            return true; // Ukončíme, žádné další kontroly ani tresty
+        }
+
         const messageContent = message.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
         if (level3Words.some(word => messageContent.includes(word))) {
             ratings[message.author.id] = [0]; saveRatings();
@@ -135,7 +148,7 @@ async function moderateMessage(message) {
             return true;
         }
         const wordCount = message.content.split(' ').length;
-        if (wordCount <= MAX_WORDS_FOR_AI && message.content.length >= 4) {
+        if (wordCount <= MAX_WORDS_FOR_AI && message.content.length >= MIN_CHARS_FOR_AI) {
             const now = Date.now();
             const lastCheck = userCooldowns.get(message.author.id);
             if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
