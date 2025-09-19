@@ -32,8 +32,8 @@ const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 
-// ===== NOVINKA: REGULÁRNÍ VÝRAZ PRO DETEKCI EMOJI SPAMU =====
-const emojiSpamRegex = /(?:(?:\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])|<a?:\w+:\d+>)\s*){5,}/;
+// ===== OPRAVENÝ REGULÁRNÍ VÝRAZ PRO DETEKCI EMOJI SPAMU =====
+const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){5,}/;
 
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
@@ -48,7 +48,7 @@ const level2Words = [
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
-    'debil', 'blbec', 'kretén',
+    'debil', 'kretén',
     'sračka', 'doprdele', 'píčo', 'pičo',
     'fakin', 'curak', 'píča',
 ];
@@ -77,37 +77,7 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if 
 function addRating(userId, rating, reason = "") { if (!ratings[userId]) ratings[userId] = []; ratings[userId].push(rating); if (ratings[userId].length > 10) ratings[userId].shift(); saveRatings(); console.log(`Uživatel ${userId} dostal hodnocení ${rating}. ${reason}`);}
 function cleanupOldRatings() { let changed = false; for (const userId in ratings) { if (ratings[userId].length > 10) { ratings[userId] = ratings[userId].slice(-10); changed = true; } } if (changed) saveRatings(); }
 cleanupOldRatings();
-
-async function isToxic(text) {
-    if (!geminiApiKey) return false;
-    const prompt = `Je tento text toxický nebo urážlivý v kontextu chatu? Toxický = obsahuje nenávist, vyhrožování, šikanu nebo urážku mířenou proti uživateli. Není toxický = používá sprostá slova jen jako výraz emocí nebo mezi kamarády bez útočného záměru. Odpověz jen "ANO" nebo "NE". Nic víc. Text: "${text}"`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
-
-    try {
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${geminiApiKey}`, requestBody);
-        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
-        console.log(`Gemini analýza (${activeModel}) pro text "${text}": Odpověď - ${result}`);
-        return result.includes("ANO");
-    } catch (error) {
-        const status = error.response ? error.response.status : null;
-        if ((status === 429 || status === 404) && !hasSwitchedToFallback) {
-            console.warn(`Model ${activeModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackModel}`);
-            activeModel = fallbackModel;
-            hasSwitchedToFallback = true;
-            try {
-                const channel = await client.channels.fetch(logChannelId);
-                if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model selhal. Automaticky přepínám na záložní model.`);
-            } catch (err) {}
-            return isToxic(text);
-        }
-        if (status === 429) {
-            console.error(`!!! DOSAŽEN LIMIT I PRO ZÁLOŽNÍ MODEL ${activeModel} !!!`);
-            return 'API_LIMIT';
-        }
-        console.error(`Chyba při komunikaci s Gemini API (${activeModel}):`, error.response ? error.response.data.error : error.message);
-        return false;
-    }
-}
+async function isToxic(text) { if (!geminiApiKey) return false; const prompt = `Je tento text toxický nebo urážlivý v kontextu chatu? Toxický = obsahuje nenávist, vyhrožování, šikanu nebo urážku mířenou proti uživateli. Není toxický = používá sprostá slova jen jako výraz emocí nebo mezi kamarády bez útočného záměru. Odpověz jen "ANO" nebo "NE". Nic víc. Text: "${text}"`; const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } }; try { const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${geminiApiKey}`, requestBody); const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase(); console.log(`Gemini analýza (${activeModel}) pro text "${text}": Odpověď - ${result}`); return result.includes("ANO"); } catch (error) { const status = error.response ? error.response.status : null; if ((status === 429 || status === 404) && !hasSwitchedToFallback) { console.warn(`Model ${activeModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackModel}`); activeModel = fallbackModel; hasSwitchedToFallback = true; try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model selhal. Automaticky přepínám na záložní model.`); } catch (err) {} return isToxic(text); } if (status === 429) { console.error(`!!! DOSAŽEN LIMIT I PRO ZÁLOŽNÍ MODEL ${activeModel} !!!`); return 'API_LIMIT'; } console.error(`Chyba při komunikaci s Gemini API (${activeModel}):`, error.response ? error.response.data.error : error.message); return false; } }
 
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
@@ -115,16 +85,14 @@ async function moderateMessage(message) {
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
     
     if (aiModerationChannelIds.includes(message.channel.id)) {
-        // ===== NOVÁ KONTROLA ZDE: EMOJI SPAM =====
         if (emojiSpamRegex.test(message.content)) {
             try {
                 await message.delete();
                 const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`);
                 setTimeout(() => warningMsg.delete().catch(() => {}), 10000);
             } catch (err) {}
-            return true; // Ukončíme, žádné další kontroly ani tresty
+            return true;
         }
-
         const messageContent = message.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
         if (level3Words.some(word => messageContent.includes(word))) {
             ratings[message.author.id] = [0]; saveRatings();
