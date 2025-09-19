@@ -44,7 +44,7 @@ const level2Words = [
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
-    'debil', 'blbec', 'kretén',
+    'debil', 'kretén',
     'sračka', 'doprdele', 'píčo', 'pičo',
     'fakin', 'curak', 'píča',
 ];
@@ -77,7 +77,7 @@ cleanupOldRatings();
 
 async function isToxic(text) {
     if (!geminiApiKey) return false;
-    const prompt = `Je tento text toxický nebo urážlivý? Odpověz jen "ANO"/"NE" nic víc. Text: "${text}"`;
+    const prompt = `Je tento text toxický nebo urážlivý v kontextu chatu? Toxický = obsahuje nenávist, vyhrožování, šikanu nebo urážku mířenou proti uživateli. Není toxický = používá sprostá slova jen jako výraz emocí nebo mezi kamarády bez útočného záměru. Odpověz jen "ANO" nebo "NE". Nic víc. Text: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
 
     try {
