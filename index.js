@@ -31,7 +31,7 @@ const MIN_CHARS_FOR_AI = 4;
 const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
-const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
+const emojiSpamRegex = /(?:(?:\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])|<a?:\w+:\d+>)\s*){5,}/;
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
 
@@ -85,6 +85,11 @@ async function analyzeText(text) {
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
+        // ===== OPRAVA ZDE: BEZPEČNOSTNÍ KONTROLA =====
+        if (!response.data.candidates || response.data.candidates.length === 0) {
+            console.log(`Gemini textová analýza (${activeTextModel}) byla zablokována bezpečnostním filtrem.`);
+            return true; // Pokud AI odmítne odpovědět, považujeme to za toxické
+        }
         const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
         console.log(`Gemini textová analýza (${activeTextModel}) pro text "${text}": Odpověď - ${result}`);
         return result.includes("ANO");
@@ -110,15 +115,9 @@ async function analyzeImage(imageUrl) {
     if (!geminiApiKey) return false;
     try {
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-        if (imageResponse.data.byteLength > MAX_FILE_SIZE_BYTES) {
-            console.log(`Obrázek ${imageUrl} je příliš velký, analýza přeskočena.`);
-            return false;
-        }
         const base64Image = Buffer.from(imageResponse.data, 'binary').toString('base64');
         let mimeType = imageResponse.headers['content-type'];
-        if (mimeType === 'image/gif') {
-            mimeType = 'image/png';
-        }
+        if (mimeType === 'image/gif') mimeType = 'image/png';
         if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) return false;
 
         const prompt = 'Je tento obrázek nebo GIF nevhodný (NSFW, násilí, krev, urážlivý text)? Odpověz jen "ANO" nebo "NE". Nic víc.';
@@ -132,6 +131,11 @@ async function analyzeImage(imageUrl) {
             generationConfig: { maxOutputTokens: 5 }
         };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
+        // ===== OPRAVA ZDE: BEZPEČNOSTNÍ KONTROLA =====
+        if (!response.data.candidates || response.data.candidates.length === 0) {
+            console.log(`Gemini obrázková analýza (${imageModel}) byla zablokována bezpečnostním filtrem.`);
+            return true; // Pokud AI odmítne odpovědět, považujeme to za toxické
+        }
         const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
         console.log(`Gemini obrázková analýza (${imageModel}) pro obrázek "${imageUrl}": Odpověď - ${result}`);
         return result.includes("ANO");
@@ -149,24 +153,18 @@ async function moderateMessage(message) {
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
     
     if (aiModerationChannelIds.includes(message.channel.id)) {
-        // ===== ZMĚNA ZDE: INTELIGENTNÍ DETEKCE OBRÁZKŮ, EMBEDŮ A GIFŮ =====
         let mediaUrl = null;
         if (message.attachments.size > 0) {
             const attachment = message.attachments.first();
-            if (attachment.size < MAX_FILE_SIZE_BYTES) {
+            if (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/')) {
                 mediaUrl = attachment.url;
             }
         }
-        if (!mediaUrl && message.embeds.length > 0) {
-            const embed = message.embeds[0];
-            if (embed.image) mediaUrl = embed.image.url;
-            else if (embed.thumbnail) mediaUrl = embed.thumbnail.url;
-        }
         if (!mediaUrl) {
-            const match = message.content.match(mediaUrlRegex);
+            const gifRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com)\S+/;
+            const match = message.content.match(gifRegex);
             if (match) mediaUrl = match[0];
         }
-
         if (mediaUrl) {
             const imageResult = await analyzeImage(mediaUrl);
             if (imageResult === true) {
@@ -182,9 +180,7 @@ async function moderateMessage(message) {
                 }
             }
         }
-
         if (message.content.length === 0) return false;
-
         if (emojiSpamRegex.test(message.content)) {
             try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
@@ -209,7 +205,7 @@ async function moderateMessage(message) {
             return true;
         }
         const wordCount = message.content.split(' ').length;
-        if (message.content.length >= MIN_CHARS_FOR_AI && wordCount <= MAX_WORDS_FOR_AI) {
+        if (wordCount <= MAX_WORDS_FOR_AI && message.content.length >= MIN_CHARS_FOR_AI) {
             const now = Date.now();
             const lastCheck = userCooldowns.get(message.author.id);
             if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
