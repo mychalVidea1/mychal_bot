@@ -46,7 +46,7 @@ const level2Words = [
     'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn',
     'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat',
     'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker',
-    'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy',
+    'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
@@ -55,6 +55,12 @@ const level1Words = [
     'fakin', 'curak', 'píča',
 ];
 // ==============================================================================
+
+// NOVÁ ČÁST: Regulární výrazy pro bezpečné hledání celých slov
+const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
+const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
+const level1Regex = new RegExp(`\\b(${level1Words.join('|')})\\b`, 'i');
+
 
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
@@ -174,7 +180,6 @@ async function analyzeImage(imageUrl) {
     }
 }
 
-
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = await message.guild.members.fetch(message.author.id).catch(() => null);
@@ -221,25 +226,27 @@ async function moderateMessage(message) {
             try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
-        const messageContent = textToAnalyze.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
-        if (level3Words.some(word => messageContent.includes(word))) {
+
+        // OPRAVENÁ ČÁST: Kontrola slov pomocí regulárních výrazů
+        if (level3Regex.test(textToAnalyze)) {
             ratings[message.author.id] = [0]; saveRatings();
             await updateRoleStatus(message.author.id, message.guild, message);
             try { await message.delete(); const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil přísně zakázané slovo. Tvoje hodnocení bylo **resetováno na 0**!`); setTimeout(() => warningMsg.delete().catch(() => {}), 20000); } catch (err) {}
             return true;
         }
-        if (level2Words.some(word => messageContent.includes(word))) {
+        if (level2Regex.test(textToAnalyze)) {
             addRating(message.author.id, -3, "Důvod: Hrubá urážka");
             await updateRoleStatus(message.author.id, message.guild, message);
             try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, za toto chování ti byl snížen rating o **3 body**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
-        if (level1Words.some(word => messageContent.includes(word))) {
+        if (level1Regex.test(textToAnalyze)) {
             addRating(message.author.id, -1, "Důvod: Nevhodné slovo");
             await updateRoleStatus(message.author.id, message.guild, message);
             try { const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl lehce snížen rating.`); setTimeout(() => warningReply.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
+
         const wordCount = textToAnalyze.split(' ').length;
         if (textToAnalyze.length >= MIN_CHARS_FOR_AI && wordCount <= MAX_WORDS_FOR_AI) {
             const now = Date.now();
