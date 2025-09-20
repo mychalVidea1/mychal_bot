@@ -37,8 +37,8 @@ const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
-let activeTextModel = 'gemini-2.5-flash-lite';
-const fallbackTextModel = 'gemini-1.5-flash-latest';
+let activeTextModel = 'gemini-2.5-flash';
+const fallbackTextModel = 'gemini-2.5-flash-lite';
 let hasSwitchedTextFallback = false;
 
 // Nové proměnné pro záložní model obrázků
@@ -106,7 +106,6 @@ async function analyzeText(text) {
         return false;
     }
 }
-
 async function analyzeImage(imageUrl) {
     if (!geminiApiKey) return false;
     try {
@@ -158,7 +157,6 @@ async function analyzeImage(imageUrl) {
         return 'FILTERED';
     }
 }
-
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = await message.guild.members.fetch(message.author.id).catch(() => null);
@@ -181,7 +179,6 @@ async function moderateMessage(message) {
             const match = message.content.match(mediaUrlRegex);
             if (match) mediaUrl = match[0];
         }
-
         if (mediaUrl) {
             const imageResult = await analyzeImage(mediaUrl);
             if (imageResult === true) {
@@ -206,7 +203,6 @@ async function moderateMessage(message) {
                 return false;
             }
         }
-        
         const textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
         if (textToAnalyze.length === 0) return false;
 
@@ -256,7 +252,6 @@ async function moderateMessage(message) {
     }
     return false;
 }
-
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
     try {
@@ -267,15 +262,12 @@ client.once('clientReady', async () => {
         }
     } catch (error) {}
 });
-
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
     }
-
     const [action, originalMessageId, authorId] = interaction.customId.split('-');
-
     try {
         const originalMessageUrl = interaction.message.embeds[0].fields[0].value;
         const urlParts = originalMessageUrl.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
@@ -314,7 +306,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', ephemeral: true });
     }
 });
-
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
     const oldTimeoutEnd = oldMember.communicationDisabledUntilTimestamp;
@@ -328,7 +319,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         } catch (err) {}
     }
 });
-
 client.on('guildBanAdd', async (ban) => {
     ratings[ban.user.id] = [0];
     saveRatings();
@@ -338,7 +328,6 @@ client.on('guildBanAdd', async (ban) => {
         if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
     } catch (err) {}
 });
-
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
     if (otherBotPrefixes.some(p => message.content.startsWith(p))) return;
@@ -421,7 +410,6 @@ client.on('messageCreate', async message => {
             scoreEmbed.setDescription(scoreEmbed.data.description + leaderboardString);
             return message.channel.send({ embeds: [scoreEmbed] });
         }
-        
         try { await message.delete(); } catch (err) {}
         const errorEmbed = new EmbedBuilder().setImage(errorGif);
         const targetUser = message.mentions.users.first() || message.author;
@@ -446,7 +434,6 @@ client.on('messageCreate', async message => {
         setTimeout(() => reply.delete().catch(() => {}), 10000);
     }
 });
-
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) {
         try { await newMessage.fetch(); } catch { return; }
@@ -455,5 +442,4 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
-
 client.login(process.env.BOT_TOKEN);
