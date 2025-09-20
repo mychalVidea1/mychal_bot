@@ -167,7 +167,7 @@ async function moderateMessage(message) {
             if (embed.image) mediaUrl = embed.image.url;
             else if (embed.thumbnail) mediaUrl = embed.thumbnail.url;
             else if (embed.video) mediaUrl = embed.video.url;
-            else if (embed.url) mediaUrl = embed.url; // Záchrana pro embedy, které jsou jen odkaz
+            else if (embed.url) mediaUrl = embed.url;
         }
         if (!mediaUrl) {
             const match = message.content.match(mediaUrlRegex);
@@ -177,7 +177,6 @@ async function moderateMessage(message) {
         if (mediaUrl) {
             const directMediaUrl = await resolveMediaUrl(mediaUrl);
             const imageResult = await analyzeImage(directMediaUrl);
-            
             if (imageResult === true) {
                 addRating(message.author.id, -2, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
                 await updateRoleStatus(message.author.id, message.guild, message);
@@ -202,8 +201,12 @@ async function moderateMessage(message) {
         }
         
         let textToAnalyze = message.content;
-        if (message.embeds.length > 0 && message.embeds[0].description) {
-            textToAnalyze += ' ' + message.embeds[0].description;
+        if (message.embeds.length > 0) {
+            for (const embed of message.embeds) {
+                if (embed.description) {
+                    textToAnalyze += ' ' + embed.description;
+                }
+            }
         }
         textToAnalyze = textToAnalyze.replace(mediaUrlRegex, '').trim();
         
