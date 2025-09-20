@@ -95,7 +95,7 @@ async function analyzeText(text) {
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!candidateText) {
             console.log(`Gemini textová analýza (${activeTextModel}) byla zablokována bezpečnostním filtrem.`);
-            return true;
+            return false;
         }
         const result = candidateText.trim().toUpperCase();
         console.log(`Gemini textová analýza (${activeTextModel}) pro text "${text}": Odpověď - ${result}`);
@@ -146,8 +146,6 @@ async function analyzeImage(imageUrl) {
         }
         
         const base64Image = imageBuffer.toString('base64');
-        
-        // ZMĚNA: Vylepšený a kontextovější prompt pro AI
         const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je skutečně nevhodný) nebo "NE" (pokud je v pořádku).`;
 
         const requestBody = {
@@ -160,11 +158,17 @@ async function analyzeImage(imageUrl) {
             generationConfig: { maxOutputTokens: 5 }
         };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
+        
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        // --- ZDE JE KLÍČOVÁ OPRAVA ---
         if (!candidateText) {
             console.log(`Gemini obrázková analýza (${imageModel}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
-            return true;
+            // Pokud nedostaneme odpověď, protože ji zablokoval bezpečnostní filtr,
+            // nebudeme trestat uživatele. Považujeme to za neprůkazné.
+            return false; 
         }
+
         const result = candidateText.trim().toUpperCase();
         console.log(`Gemini obrázková analýza (${imageModel}) pro obrázek "${imageUrl}": Odpověď - ${result}`);
         return result.includes("ANO");
@@ -202,7 +206,6 @@ async function moderateMessage(message) {
         if (mediaUrl) {
             const imageResult = await analyzeImage(mediaUrl);
             if (imageResult === true) {
-                // ZMĚNA: Snížen postih a přidán log pro ladění
                 addRating(message.author.id, -2, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
                 await updateRoleStatus(message.author.id, message.guild, message);
                 
@@ -276,8 +279,6 @@ async function moderateMessage(message) {
     return false;
 }
 
-// Ostatní části kódu (client.once, client.on, atd.) zůstávají beze změny
-// ...
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
     try {
