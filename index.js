@@ -44,7 +44,23 @@ let activeImageModel = 'gemini-2.5-pro';
 const fallbackImageModel = 'gemini-1.5-pro-latest';
 let hasSwitchedImageFallback = false;
 
-const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri' ];
+const level3Words = [
+    // Původní + anglické varianty
+    'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
+    'niga', 'n1ga', 'nygga', 'niggar', 'niggah', 'niglet',
+
+    // České/slovenské varianty - základ
+    'negr', 'ne*r', 'n*gr', 'n3gr', 'neger',
+
+    // České/slovenské varianty - množné číslo
+    'negri', 'negři',
+
+    // České/slovenské varianty - zdrobněliny a urážlivé tvary
+    'negrík', 'negríci', 'negríček', 'negríčci', 'negricek', 'negricci',
+
+    // Další odvozené tvary
+    'negryně', 'negryne'
+];
 const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn', 'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
 const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'curak', 'píča' ];
 
@@ -92,7 +108,7 @@ async function resolveMediaUrl(url) {
 
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
-    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit pouze zprávy, které jsou skutečně škodlivé. Ignoruj běžné nadávky a přátelské pošťuchování mezi kamarády. Zasáhni, jen pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE". Text: "${text}"`;
+    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit pouze zprávy, které jsou skutečně škodlivé, poškozující nebo urážlivé. Ignoruj hodně lehké nadávky a přátelské pošťuchování. Zasáhni, jen pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE". Text: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
