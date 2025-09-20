@@ -3,6 +3,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
+const sharp = require('sharp');
 
 const client = new Client({
     intents: [
@@ -33,7 +34,7 @@ const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
-const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
 
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
@@ -45,10 +46,10 @@ const level2Words = [
     'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat',
     'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker',
     'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
-    'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
+    'fuck', 'f*ck', 'fck', 'fuk', 'kys', 'kill yourself', 'go kill yourself', 'zabij se'
 ];
 const level1Words = [
-    'debil', 'blbec', 'kretén',
+    'debil', 'kretén',
     'sračka', 'doprdele', 'píčo', 'pičo',
     'fakin', 'curak', 'píča',
 ];
@@ -85,12 +86,12 @@ async function analyzeText(text) {
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
-        // ===== OPRAVA ZDE: BEZPEČNOSTNÍ KONTROLA =====
-        if (!response.data.candidates || response.data.candidates.length === 0) {
+        const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!candidateText) {
             console.log(`Gemini textová analýza (${activeTextModel}) byla zablokována bezpečnostním filtrem.`);
-            return true; // Pokud AI odmítne odpovědět, považujeme to za toxické
+            return true;
         }
-        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        const result = candidateText.trim().toUpperCase();
         console.log(`Gemini textová analýza (${activeTextModel}) pro text "${text}": Odpověď - ${result}`);
         return result.includes("ANO");
     } catch (error) {
@@ -114,12 +115,19 @@ async function analyzeText(text) {
 async function analyzeImage(imageUrl) {
     if (!geminiApiKey) return false;
     try {
-        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-        const base64Image = Buffer.from(imageResponse.data, 'binary').toString('base64');
-        let mimeType = imageResponse.headers['content-type'];
-        if (mimeType === 'image/gif') mimeType = 'image/png';
-        if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) return false;
+        let imageBuffer = (await axios.get(imageUrl, { responseType: 'arraybuffer' })).data;
+        let mimeType = (await axios.head(imageUrl)).headers['content-type'];
 
+        if (mimeType.startsWith('image/gif')) {
+            imageBuffer = await sharp(imageBuffer).toFormat('png').toBuffer();
+            mimeType = 'image/png';
+        } else if (mimeType.startsWith('image/')) {
+            imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
+        } else {
+            return false; // Ignorujeme vše, co není obrázek
+        }
+
+        const base64Image = imageBuffer.toString('base64');
         const prompt = 'Je tento obrázek nebo GIF nevhodný (NSFW, násilí, krev, urážlivý text)? Odpověz jen "ANO" nebo "NE". Nic víc.';
         const requestBody = {
             contents: [{
@@ -131,12 +139,12 @@ async function analyzeImage(imageUrl) {
             generationConfig: { maxOutputTokens: 5 }
         };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
-        // ===== OPRAVA ZDE: BEZPEČNOSTNÍ KONTROLA =====
-        if (!response.data.candidates || response.data.candidates.length === 0) {
+        const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!candidateText) {
             console.log(`Gemini obrázková analýza (${imageModel}) byla zablokována bezpečnostním filtrem.`);
-            return true; // Pokud AI odmítne odpovědět, považujeme to za toxické
+            return true;
         }
-        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        const result = candidateText.trim().toUpperCase();
         console.log(`Gemini obrázková analýza (${imageModel}) pro obrázek "${imageUrl}": Odpověď - ${result}`);
         return result.includes("ANO");
     } catch (error) {
@@ -156,15 +164,20 @@ async function moderateMessage(message) {
         let mediaUrl = null;
         if (message.attachments.size > 0) {
             const attachment = message.attachments.first();
-            if (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/')) {
+            if (attachment.size < MAX_FILE_SIZE_BYTES) {
                 mediaUrl = attachment.url;
             }
         }
+        if (!mediaUrl && message.embeds.length > 0) {
+            const embed = message.embeds[0];
+            if (embed.image) mediaUrl = embed.image.url;
+            else if (embed.thumbnail) mediaUrl = embed.thumbnail.url;
+        }
         if (!mediaUrl) {
-            const gifRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com)\S+/;
-            const match = message.content.match(gifRegex);
+            const match = message.content.match(mediaUrlRegex);
             if (match) mediaUrl = match[0];
         }
+
         if (mediaUrl) {
             const imageResult = await analyzeImage(mediaUrl);
             if (imageResult === true) {
@@ -180,12 +193,15 @@ async function moderateMessage(message) {
                 }
             }
         }
-        if (message.content.length === 0) return false;
-        if (emojiSpamRegex.test(message.content)) {
+        
+        const textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
+        if (textToAnalyze.length === 0) return false;
+
+        if (emojiSpamRegex.test(textToAnalyze)) {
             try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
-        const messageContent = message.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
+        const messageContent = textToAnalyze.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
         if (level3Words.some(word => messageContent.includes(word))) {
             ratings[message.author.id] = [0]; saveRatings();
             await updateRoleStatus(message.author.id, message.guild, message);
@@ -204,13 +220,13 @@ async function moderateMessage(message) {
             try { const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl lehce snížen rating.`); setTimeout(() => warningReply.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
-        const wordCount = message.content.split(' ').length;
-        if (wordCount <= MAX_WORDS_FOR_AI && message.content.length >= MIN_CHARS_FOR_AI) {
+        const wordCount = textToAnalyze.split(' ').length;
+        if (textToAnalyze.length >= MIN_CHARS_FOR_AI && wordCount <= MAX_WORDS_FOR_AI) {
             const now = Date.now();
             const lastCheck = userCooldowns.get(message.author.id);
             if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
                 userCooldowns.set(message.author.id, now);
-                const toxicityResult = await analyzeText(message.content);
+                const toxicityResult = await analyzeText(textToAnalyze);
                 if (toxicityResult === true) {
                     addRating(message.author.id, -2, `Důvod: Toxická zpráva (detekováno AI)`);
                     await updateRoleStatus(message.author.id, message.guild, message);
