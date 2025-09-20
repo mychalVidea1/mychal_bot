@@ -4,6 +4,7 @@ const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField }
 const fs = require('fs');
 const axios = require('axios');
 const sharp = require('sharp');
+const getFrames = require('gif-frames');
 
 const client = new Client({
     intents: [
@@ -32,9 +33,9 @@ const MIN_CHARS_FOR_AI = 4;
 const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
-const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
+const emojiSpamRegex = /(?:(?:\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])|<a?:\w+:\d+>)\s*){10,}/;
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
-const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
+const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
@@ -46,7 +47,7 @@ const level2Words = [
     'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat',
     'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker',
     'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
-    'fuck', 'f*ck', 'fck', 'fuk', 'kys', 'kill yourself', 'go kill yourself', 'zabij se'
+    'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
     'debil', 'kretén',
@@ -119,14 +120,24 @@ async function analyzeImage(imageUrl) {
         let mimeType = (await axios.head(imageUrl)).headers['content-type'];
 
         if (mimeType.startsWith('image/gif')) {
-            imageBuffer = await sharp(imageBuffer).toFormat('png').toBuffer();
+            const frames = await getFrames({ url: imageBuffer, frames: 'all', outputType: 'png', quality: 10 });
+            const middleFrameIndex = Math.floor(frames.length / 2);
+            const frameStream = frames[middleFrameIndex].getImage();
+            
+            const chunks = [];
+            for await (const chunk of frameStream) {
+                chunks.push(chunk);
+            }
+            imageBuffer = Buffer.concat(chunks);
             mimeType = 'image/png';
-        } else if (mimeType.startsWith('image/')) {
-            imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
+        } 
+        
+        if (mimeType.startsWith('image/')) {
+             imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
         } else {
-            return false; // Ignorujeme vše, co není obrázek
+            return false;
         }
-
+        
         const base64Image = imageBuffer.toString('base64');
         const prompt = 'Je tento obrázek nebo GIF nevhodný (NSFW, násilí, krev, urážlivý text)? Odpověz jen "ANO" nebo "NE". Nic víc.';
         const requestBody = {
@@ -164,7 +175,7 @@ async function moderateMessage(message) {
         let mediaUrl = null;
         if (message.attachments.size > 0) {
             const attachment = message.attachments.first();
-            if (attachment.size < MAX_FILE_SIZE_BYTES) {
+            if (attachment.size < MAX_FILE_SIZE_BYTES && (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'))) {
                 mediaUrl = attachment.url;
             }
         }
