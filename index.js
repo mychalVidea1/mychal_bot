@@ -39,26 +39,16 @@ const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
 let activeTextModel = 'gemini-2.5-flash-lite';
 const fallbackTextModel = 'gemini-1.5-flash-latest';
-const imageModel = 'gemini-1.5-pro-latest'; 
+let hasSwitchedTextFallback = false;
 
-const level3Words = [
-    'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
-    'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri'
-];
-const level2Words = [
-    'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus',
-    'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn',
-    'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat',
-    'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker',
-    'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
-    'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
-];
-const level1Words = [
-    'debil', 'kretén',
-    'sračka', 'doprdele', 'píčo', 'pičo',
-    'fakin', 'curak', 'píča',
-];
-// ==============================================================================
+// Nové proměnné pro záložní model obrázků
+let activeImageModel = 'gemini-2.5-pro';
+const fallbackImageModel = 'gemini-1.5-pro-latest';
+let hasSwitchedImageFallback = false;
+
+const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri' ];
+const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn', 'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk' ];
+const level1Words = [ 'debil', 'kretén', 'sračka', 'doprdele', 'píčo', 'pičo', 'fakin', 'curak', 'píča' ];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -66,7 +56,6 @@ const level1Regex = new RegExp(`\\b(${level1Words.join('|')})\\b`, 'i');
 
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
-let hasSwitchedToFallback = false;
 
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
@@ -102,15 +91,15 @@ async function analyzeText(text) {
         return result.includes("ANO");
     } catch (error) {
         const status = error.response ? error.response.status : null;
-        if ((status === 429 || status === 404) && !hasSwitchedToFallback) {
+        if ((status === 429 || status === 404) && !hasSwitchedTextFallback) {
             console.warn(`Model ${activeTextModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackTextModel}`);
             activeTextModel = fallbackTextModel;
-            hasSwitchedToFallback = true;
+            hasSwitchedTextFallback = true;
             try {
                 const channel = await client.channels.fetch(logChannelId);
                 if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model pro text selhal. Automaticky přepínám na záložní model.`);
             } catch (err) {}
-            return analyzeText(text); // Zkusit znovu se záložním modelem
+            return analyzeText(text);
         }
         if (status === 429) { return 'API_LIMIT'; }
         console.error(`Chyba při komunikaci s Gemini API (${activeTextModel}):`, error.response ? error.response.data.error : error.message);
@@ -145,16 +134,27 @@ async function analyzeImage(imageUrl) {
         const base64Image = imageBuffer.toString('base64');
         const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je skutečně nevhodný) nebo "NE" (pokud je v pořádku).`;
         const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
+        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeImageModel}:generateContent?key=${geminiApiKey}`, requestBody);
         if (!response.data.candidates || response.data.candidates.length === 0) {
-            console.log(`Gemini obrázková analýza byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
+            console.log(`Gemini obrázková analýza (${activeImageModel}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
             return 'FILTERED';
         }
         const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
-        console.log(`Gemini analýza pro "${imageUrl}": Odpověď - ${result}`);
+        console.log(`Gemini analýza pro "${imageUrl}" (${activeImageModel}): Odpověď - ${result}`);
         return result.includes("ANO");
     } catch (error) {
-        console.log(`Gemini obrázková analýza selhala pro obrázek: ${imageUrl}. Důvod: ${error.message}`);
+        const status = error.response ? error.response.status : null;
+        if ((status === 429 || status === 404 || status === 500) && !hasSwitchedImageFallback) {
+            console.warn(`Model obrázků ${activeImageModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackImageModel}`);
+            activeImageModel = fallbackImageModel;
+            hasSwitchedImageFallback = true;
+            try {
+                const channel = await client.channels.fetch(logChannelId);
+                if (channel) channel.send(`🟠 **VAROVÁNÍ:** Primární AI model pro obrázky selhal. Automaticky přepínám na záložní model.`);
+            } catch (err) {}
+            return analyzeImage(imageUrl); // Zkusit znovu se záložním modelem
+        }
+        console.log(`Gemini obrázková analýza (${activeImageModel}) selhala pro obrázek: ${imageUrl}. Důvod: ${error.message}`);
         return 'FILTERED';
     }
 }
@@ -196,7 +196,7 @@ async function moderateMessage(message) {
             } else if (imageResult === 'FILTERED') {
                 const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
                 if (logChannel) {
-                    const embed = new EmbedBuilder().setColor('#FFA500').setTitle('⚠️ AI Moderace Selhala').setDescription(`Bezpečnostní filtr zablokoval analýzu obrázku od <@${message.author.id}>.\nŽádám o lidský posudek.`).setImage(mediaUrl).addFields({ name: 'Odkaz na zprávu', value: `[Klikni zde](${message.url})` }).setTimestamp();
+                    const embed = new EmbedBuilder().setColor('#FFA500').setTitle('⚠️ AI Moderace Selhala').setDescription(`AI nedokázala analyzovat obrázek od <@${message.author.id}>.\nŽádám o lidský posudek.`).setImage(mediaUrl).addFields({ name: 'Odkaz na zprávu', value: `[Klikni zde](${message.url})` }).setTimestamp();
                     const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId(`approve-${message.id}-${message.author.id}`).setLabel('✅ Ponechat').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId(`punish-${message.id}-${message.author.id}`).setLabel('❌ Smazat a potrestat').setStyle(ButtonStyle.Danger)
