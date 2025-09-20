@@ -411,4 +411,4 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     await moderateMessage(newMessage);
 });
 
-client.login(process.env.BOT_TOKEN);```
+client.login(process.env.BOT_TOKEN);
