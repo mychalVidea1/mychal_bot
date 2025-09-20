@@ -46,7 +46,7 @@ const level2Words = [
     'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn',
     'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat',
     'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker',
-    'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
+    'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy',
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
@@ -121,13 +121,21 @@ async function analyzeImage(imageUrl) {
 
         if (mimeType.startsWith('image/gif')) {
             const frames = await getFrames({ url: imageBuffer, frames: 'all', outputType: 'png', quality: 10 });
+            
+            if (frames.length === 0) {
+                console.error("Chyba: GIF neobsahuje žádné snímky.");
+                return false;
+            }
+
             const middleFrameIndex = Math.floor(frames.length / 2);
             const frameStream = frames[middleFrameIndex].getImage();
             
             const chunks = [];
-            for await (const chunk of frameStream) {
-                chunks.push(chunk);
-            }
+            await new Promise((resolve, reject) => {
+                frameStream.on('data', (chunk) => chunks.push(chunk));
+                frameStream.on('error', reject);
+                frameStream.on('end', resolve);
+            });
             imageBuffer = Buffer.concat(chunks);
             mimeType = 'image/png';
         } 
@@ -165,6 +173,7 @@ async function analyzeImage(imageUrl) {
         return false;
     }
 }
+
 
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
