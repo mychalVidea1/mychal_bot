@@ -65,11 +65,16 @@ const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 let activeTextModel = 'gemini-2.5-flash-lite';
 const fallbackTextModel = 'gemini-1.5-flash-latest';
-
-// --- POUŽÍVÁME NEJNOVĚJŠÍ A NEJLEPŠÍ DOSTUPNÝ MODEL ---
 const imageModel = 'gemini-2.5-pro';
-
 let hasSwitchedToFallback = false;
+
+// --- ZDE JE KLÍČOVÁ ZMĚNA: Nastavení bezpečnosti pro API ---
+const safetySettings = [
+    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+];
 
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
@@ -92,7 +97,11 @@ cleanupOldRatings();
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
     const prompt = `Jsi AI moderátor pro neformální chat. Je následující text urážlivý, toxický nebo jde o šikanu v kontextu konverzace mezi přáteli? Ignoruj běžná sprostá slova použitá jako citoslovce. Zaměř se pouze na přímé útoky na ostatní uživatele. Odpověz jen "ANO" (pokud je to útok) nebo "NE". Text: "${text}"`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
+    const requestBody = { 
+        contents: [{ parts: [{ text: prompt }] }], 
+        generationConfig: { maxOutputTokens: 5 },
+        safetySettings: safetySettings // Přidání nastavení bezpečnosti
+    };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -158,7 +167,8 @@ async function analyzeImage(imageUrl) {
                     { inline_data: { mime_type: mimeType, data: base64Image } }
                 ]
             }],
-            generationConfig: { maxOutputTokens: 5 }
+            generationConfig: { maxOutputTokens: 5 },
+            safetySettings: safetySettings // Přidání nastavení bezpečnosti
         };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
         
