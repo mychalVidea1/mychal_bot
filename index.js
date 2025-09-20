@@ -45,8 +45,16 @@ const fallbackImageModel = 'gemini-1.5-pro-latest';
 let hasSwitchedImageFallback = false;
 
 const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri' ];
-const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn', 'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk' ];
-const level1Words = [ 'debil', 'kretén', 'sračka', 'doprdele', 'píčo', 'pičo', 'fakin', 'curak', 'píča' ];
+const level2Words = [ 
+    'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 
+    'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn', 
+    'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat', 
+    'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 
+    'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 
+    'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk',
+    'hitler', 'koncentrák', 'holocaust', 'sieg heil'
+];
+const level1Words = [ 'debil', 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'curak', 'píča' ];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -90,7 +98,7 @@ async function resolveMediaUrl(url) {
 
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
-    const prompt = `Jsi AI moderátor pro neformální chat. Je následující text urážlivý, toxický nebo jde o šikanu v kontextu konverzace mezi přáteli? Ignoruj běžná sprostá slova použitá jako citoslovce. Zaměř se pouze na přímé útoky na ostatní uživatele. Odpověz jen "ANO" (pokud je to útok) nebo "NE". Text: "${text}"`;
+    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit pouze zprávy, které jsou skutečně škodlivé. Ignoruj běžné nadávky a přátelské pošťuchování mezi kamarády. Zasáhni, jen pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE". Text: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
