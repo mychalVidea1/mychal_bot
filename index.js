@@ -65,7 +65,10 @@ const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 let activeTextModel = 'gemini-2.5-flash-lite';
 const fallbackTextModel = 'gemini-1.5-flash-latest';
-const imageModel = 'gemini-2.5-flash';
+
+// --- POUŽÍVÁME NEJNOVĚJŠÍ A NEJLEPŠÍ DOSTUPNÝ MODEL ---
+const imageModel = 'gemini-2.5-pro';
+
 let hasSwitchedToFallback = false;
 
 const dataDirectory = '/data';
@@ -161,11 +164,8 @@ async function analyzeImage(imageUrl) {
         
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         
-        // --- ZDE JE KLÍČOVÁ OPRAVA ---
         if (!candidateText) {
             console.log(`Gemini obrázková analýza (${imageModel}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
-            // Pokud nedostaneme odpověď, protože ji zablokoval bezpečnostní filtr,
-            // nebudeme trestat uživatele. Považujeme to za neprůkazné.
             return false; 
         }
 
