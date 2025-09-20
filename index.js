@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const sharp = require('sharp');
@@ -37,6 +37,10 @@ const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
+let activeTextModel = 'gemini-2.5-flash-lite';
+const fallbackTextModel = 'gemini-1.5-flash-latest';
+const imageModel = 'gemini-1.5-pro-latest'; 
+
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
     'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri'
@@ -60,21 +64,9 @@ const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
 const level1Regex = new RegExp(`\\b(${level1Words.join('|')})\\b`, 'i');
 
-
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
-let activeTextModel = 'gemini-2.5-flash-lite';
-const fallbackTextModel = 'gemini-1.5-flash-latest';
-const imageModel = 'gemini-2.5-pro';
 let hasSwitchedToFallback = false;
-
-// --- ZDE JE KLÍČOVÁ ZMĚNA: Nastavení bezpečnosti pro API ---
-const safetySettings = [
-    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-];
 
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
@@ -97,11 +89,7 @@ cleanupOldRatings();
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
     const prompt = `Jsi AI moderátor pro neformální chat. Je následující text urážlivý, toxický nebo jde o šikanu v kontextu konverzace mezi přáteli? Ignoruj běžná sprostá slova použitá jako citoslovce. Zaměř se pouze na přímé útoky na ostatní uživatele. Odpověz jen "ANO" (pokud je to útok) nebo "NE". Text: "${text}"`;
-    const requestBody = { 
-        contents: [{ parts: [{ text: prompt }] }], 
-        generationConfig: { maxOutputTokens: 5 },
-        safetySettings: safetySettings // Přidání nastavení bezpečnosti
-    };
+    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -122,7 +110,7 @@ async function analyzeText(text) {
                 const channel = await client.channels.fetch(logChannelId);
                 if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model pro text selhal. Automaticky přepínám na záložní model.`);
             } catch (err) {}
-            return analyzeText(text);
+            return analyzeText(text); // Zkusit znovu se záložním modelem
         }
         if (status === 429) { return 'API_LIMIT'; }
         console.error(`Chyba při komunikaci s Gemini API (${activeTextModel}):`, error.response ? error.response.data.error : error.message);
@@ -135,58 +123,39 @@ async function analyzeImage(imageUrl) {
     try {
         let imageBuffer = (await axios.get(imageUrl, { responseType: 'arraybuffer' })).data;
         let mimeType = (await axios.head(imageUrl)).headers['content-type'];
-
         if (mimeType.startsWith('image/gif')) {
             const frames = await getFrames({ url: imageBuffer, frames: 'all', outputType: 'png', quality: 10 });
-            if (frames.length === 0) { console.error("Chyba: GIF neobsahuje žádné snímky."); return false; }
+            if (frames.length === 0) return false;
             const middleFrameIndex = Math.floor(frames.length / 2);
             const frameStream = frames[middleFrameIndex].getImage();
             const chunks = [];
             await new Promise((resolve, reject) => {
-                frameStream.on('data', (chunk) => chunks.push(chunk));
+                frameStream.on('data', chunk => chunks.push(chunk));
                 frameStream.on('error', reject);
                 frameStream.on('end', resolve);
             });
             imageBuffer = Buffer.concat(chunks);
             mimeType = 'image/png';
-        } 
-        
+        }
         if (mimeType.startsWith('image/')) {
-             imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
+            imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
         } else {
             return false;
         }
-        
         const base64Image = imageBuffer.toString('base64');
         const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je skutečně nevhodný) nebo "NE" (pokud je v pořádku).`;
-
-        const requestBody = {
-            contents: [{
-                parts: [
-                    { text: prompt },
-                    { inline_data: { mime_type: mimeType, data: base64Image } }
-                ]
-            }],
-            generationConfig: { maxOutputTokens: 5 },
-            safetySettings: safetySettings // Přidání nastavení bezpečnosti
-        };
+        const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
-        
-        const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        
-        if (!candidateText) {
-            console.log(`Gemini obrázková analýza (${imageModel}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
-            return false; 
+        if (!response.data.candidates || response.data.candidates.length === 0) {
+            console.log(`Gemini obrázková analýza byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
+            return 'FILTERED';
         }
-
-        const result = candidateText.trim().toUpperCase();
-        console.log(`Gemini obrázková analýza (${imageModel}) pro obrázek "${imageUrl}": Odpověď - ${result}`);
+        const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        console.log(`Gemini analýza pro "${imageUrl}": Odpověď - ${result}`);
         return result.includes("ANO");
     } catch (error) {
-        const status = error.response ? error.response.status : null;
-        if (status === 429) { return 'API_LIMIT'; }
-        console.error(`Chyba při analýze obrázku (${imageModel}) - ${imageUrl}:`, error.response ? error.response.data.error : error.message);
-        return false;
+        console.log(`Gemini obrázková analýza selhala pro obrázek: ${imageUrl}. Důvod: ${error.message}`);
+        return 'FILTERED';
     }
 }
 
@@ -218,22 +187,23 @@ async function moderateMessage(message) {
             if (imageResult === true) {
                 addRating(message.author.id, -2, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
                 await updateRoleStatus(message.author.id, message.guild, message);
-                
                 try {
-                    const logChannel = await client.channels.fetch(logChannelId);
-                    if (logChannel) {
-                        logChannel.send(`[AI Moderace] Obrázek od <@${message.author.id}> byl označen jako nevhodný.\nOdkaz: ${mediaUrl}`);
-                    }
-                } catch(err) {}
-
-                try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+                    await message.delete();
+                    const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`);
+                    setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+                } catch (err) {}
                 return true;
-            } else if (imageResult === 'API_LIMIT') {
-                const now = Date.now();
-                if (now - lastLimitNotificationTimestamp > NOTIFICATION_COOLDOWN_MINUTES * 60 * 1000) {
-                    lastLimitNotificationTimestamp = now;
-                    try { const reply = await message.reply(`AI nemohla tento obrázek ověřit, protože si dala šlofíka na pár hodin!`); setTimeout(() => reply.delete().catch(() => {}), 300000); } catch(err) {}
+            } else if (imageResult === 'FILTERED') {
+                const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+                if (logChannel) {
+                    const embed = new EmbedBuilder().setColor('#FFA500').setTitle('⚠️ AI Moderace Selhala').setDescription(`Bezpečnostní filtr zablokoval analýzu obrázku od <@${message.author.id}>.\nŽádám o lidský posudek.`).setImage(mediaUrl).addFields({ name: 'Odkaz na zprávu', value: `[Klikni zde](${message.url})` }).setTimestamp();
+                    const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`approve-${message.id}-${message.author.id}`).setLabel('✅ Ponechat').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`punish-${message.id}-${message.author.id}`).setLabel('❌ Smazat a potrestat').setStyle(ButtonStyle.Danger)
+                    );
+                    await logChannel.send({ embeds: [embed], components: [row] });
                 }
+                return false;
             }
         }
         
@@ -244,7 +214,6 @@ async function moderateMessage(message) {
             try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
-        
         if (level3Regex.test(textToAnalyze)) {
             ratings[message.author.id] = [0]; saveRatings();
             await updateRoleStatus(message.author.id, message.guild, message);
@@ -263,7 +232,6 @@ async function moderateMessage(message) {
             try { const warningReply = await message.reply(`Slovník prosím. 🤫 Za tuto zprávu ti byl lehce snížen rating.`); setTimeout(() => warningReply.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
-
         const wordCount = textToAnalyze.split(' ').length;
         if (textToAnalyze.length >= MIN_CHARS_FOR_AI && wordCount <= MAX_WORDS_FOR_AI) {
             const now = Date.now();
@@ -298,6 +266,53 @@ client.once('clientReady', async () => {
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) {}
+});
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
+    }
+
+    const [action, originalMessageId, authorId] = interaction.customId.split('-');
+
+    try {
+        const originalMessageUrl = interaction.message.embeds[0].fields[0].value;
+        const urlParts = originalMessageUrl.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
+        if (!urlParts) throw new Error("Nelze najít původní zprávu z URL.");
+        
+        const channelId = urlParts[2];
+        const messageId = urlParts[3];
+
+        const channel = await client.channels.fetch(channelId);
+        if (!channel) throw new Error("Původní kanál nenalezen.");
+
+        const messageToModerate = await channel.messages.fetch(messageId).catch(() => null);
+
+        if (action === 'approve') {
+            const approvedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
+                .setColor('#00FF00').setTitle('✅ Schváleno Moderátorem')
+                .setDescription(`Obrázek od <@${authorId}> byl ponechán.\nSchválil: <@${interaction.user.id}>`);
+            await interaction.update({ embeds: [approvedEmbed], components: [] });
+        } else if (action === 'punish') {
+            addRating(authorId, -2, `Důvod: Nevhodný obrázek (rozhodnutí moderátora)`);
+            if (interaction.guild) {
+                await updateRoleStatus(authorId, interaction.guild);
+            }
+            if (messageToModerate) {
+                await messageToModerate.delete().catch(err => console.log("Nepodařilo se smazat zprávu."));
+                const warningMsg = await channel.send(`<@${authorId}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`);
+                setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+            }
+            const punishedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
+                .setColor('#FF0000').setTitle('❌ Smazáno a Potrestáno Moderátorem')
+                .setDescription(`Obrázek od <@${authorId}> byl smazán a uživatel potrestán.\nModerátor: <@${interaction.user.id}>`);
+            await interaction.update({ embeds: [punishedEmbed], components: [] });
+        }
+    } catch (error) {
+        console.error("Chyba při zpracování interakce:", error);
+        await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', ephemeral: true });
+    }
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
