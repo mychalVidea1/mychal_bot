@@ -31,10 +31,9 @@ const MIN_CHARS_FOR_AI = 4;
 const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
-const emojiSpamRegex = /(?:(?:\u00aď|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])|<a?:\w+:\d+>)\s*){5,}/;
-const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
-// ===== ZMĚNA ZDE: SNÍŽENÍ LIMITU NA BEZPEČNOU HODNOTU =====
-const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB
+
+// ===== OPRAVENÝ REGULÁRNÍ VÝRAZ PRO DETEKCI EMOJI SPAMU =====
+const emojiSpamRegex = /(?:(?:\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])|<a?:\w+:\d+>)\s*){10,}/;
 
 const level3Words = [
     'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers',
@@ -49,7 +48,7 @@ const level2Words = [
     'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk'
 ];
 const level1Words = [
-    'debil', 'blbec', 'kretén',
+    'debil', 'kretén',
     'sračka', 'doprdele', 'píčo', 'pičo',
     'fakin', 'curak', 'píča',
 ];
@@ -111,10 +110,6 @@ async function analyzeImage(imageUrl) {
     if (!geminiApiKey) return false;
     try {
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-        if (imageResponse.data.byteLength > MAX_FILE_SIZE_BYTES) {
-            console.log(`Obrázek ${imageUrl} je příliš velký, analýza přeskočena.`);
-            return false;
-        }
         const base64Image = Buffer.from(imageResponse.data, 'binary').toString('base64');
         const mimeType = imageResponse.headers['content-type'];
         if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) return false;
@@ -147,24 +142,13 @@ async function moderateMessage(message) {
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
     
     if (aiModerationChannelIds.includes(message.channel.id)) {
-        let mediaUrl = null;
         if (message.attachments.size > 0) {
             const attachment = message.attachments.first();
-            if (attachment.size < MAX_FILE_SIZE_BYTES) {
-                 mediaUrl = attachment.url;
-            }
-        }
-        if (!mediaUrl) {
-            const match = message.content.match(mediaUrlRegex);
-            if (match) mediaUrl = match[0];
-        }
-
-        if (mediaUrl) {
-            const imageResult = await analyzeImage(mediaUrl);
+            const imageResult = await analyzeImage(attachment.url);
             if (imageResult === true) {
-                addRating(message.author.id, -3, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
+                addRating(message.author.id, -3, `Důvod: Nevhodný obrázek (detekováno AI)`);
                 await updateRoleStatus(message.author.id, message.guild, message);
-                try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+                try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
                 return true;
             } else if (imageResult === 'API_LIMIT') {
                 const now = Date.now();
@@ -174,11 +158,12 @@ async function moderateMessage(message) {
                 }
             }
         }
-
-        if (message.content.length === 0) return false;
-
         if (emojiSpamRegex.test(message.content)) {
-            try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
+            try {
+                await message.delete();
+                const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`);
+                setTimeout(() => warningMsg.delete().catch(() => {}), 10000);
+            } catch (err) {}
             return true;
         }
         const messageContent = message.content.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s/g, '');
@@ -201,7 +186,7 @@ async function moderateMessage(message) {
             return true;
         }
         const wordCount = message.content.split(' ').length;
-        if (message.content.length >= MIN_CHARS_FOR_AI && wordCount <= MAX_WORDS_FOR_AI) {
+        if (wordCount <= MAX_WORDS_FOR_AI && message.content.length >= MIN_CHARS_FOR_AI) {
             const now = Date.now();
             const lastCheck = userCooldowns.get(message.author.id);
             if (!lastCheck || (now - lastCheck > COOLDOWN_SECONDS * 1000)) {
