@@ -56,7 +56,6 @@ const level1Words = [
 ];
 // ==============================================================================
 
-// NOVÁ ČÁST: Regulární výrazy pro bezpečné hledání celých slov
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
 const level1Regex = new RegExp(`\\b(${level1Words.join('|')})\\b`, 'i');
@@ -89,7 +88,7 @@ cleanupOldRatings();
 
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
-    const prompt = `Je tento text toxický nebo urážlivý v kontextu chatu? Toxický = obsahuje nenávist, vyhrožování, šikanu nebo urážku mířenou proti uživateli. Není toxický = používá sprostá slova jen jako výraz emocí nebo mezi kamarády bez útočného záměru. Odpověz jen "ANO" nebo "NE". Nic víc. Text: "${text}"`;
+    const prompt = `Jsi AI moderátor pro neformální chat. Je následující text urážlivý, toxický nebo jde o šikanu v kontextu konverzace mezi přáteli? Ignoruj běžná sprostá slova použitá jako citoslovce. Zaměř se pouze na přímé útoky na ostatní uživatele. Odpověz jen "ANO" (pokud je to útok) nebo "NE". Text: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
@@ -127,15 +126,9 @@ async function analyzeImage(imageUrl) {
 
         if (mimeType.startsWith('image/gif')) {
             const frames = await getFrames({ url: imageBuffer, frames: 'all', outputType: 'png', quality: 10 });
-            
-            if (frames.length === 0) {
-                console.error("Chyba: GIF neobsahuje žádné snímky.");
-                return false;
-            }
-
+            if (frames.length === 0) { console.error("Chyba: GIF neobsahuje žádné snímky."); return false; }
             const middleFrameIndex = Math.floor(frames.length / 2);
             const frameStream = frames[middleFrameIndex].getImage();
-            
             const chunks = [];
             await new Promise((resolve, reject) => {
                 frameStream.on('data', (chunk) => chunks.push(chunk));
@@ -153,7 +146,10 @@ async function analyzeImage(imageUrl) {
         }
         
         const base64Image = imageBuffer.toString('base64');
-        const prompt = 'Je tento obrázek nebo GIF nevhodný (NSFW, násilí, krev, urážlivý text)? Odpověz jen "ANO" nebo "NE". Nic víc.';
+        
+        // ZMĚNA: Vylepšený a kontextovější prompt pro AI
+        const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je skutečně nevhodný) nebo "NE" (pokud je v pořádku).`;
+
         const requestBody = {
             contents: [{
                 parts: [
@@ -166,7 +162,7 @@ async function analyzeImage(imageUrl) {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${imageModel}:generateContent?key=${geminiApiKey}`, requestBody);
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!candidateText) {
-            console.log(`Gemini obrázková analýza (${imageModel}) byla zablokována bezpečnostním filtrem.`);
+            console.log(`Gemini obrázková analýza (${imageModel}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
             return true;
         }
         const result = candidateText.trim().toUpperCase();
@@ -175,7 +171,7 @@ async function analyzeImage(imageUrl) {
     } catch (error) {
         const status = error.response ? error.response.status : null;
         if (status === 429) { return 'API_LIMIT'; }
-        console.error(`Chyba při analýze obrázku (${imageModel}):`, error.response ? error.response.data.error : error.message);
+        console.error(`Chyba při analýze obrázku (${imageModel}) - ${imageUrl}:`, error.response ? error.response.data.error : error.message);
         return false;
     }
 }
@@ -206,8 +202,17 @@ async function moderateMessage(message) {
         if (mediaUrl) {
             const imageResult = await analyzeImage(mediaUrl);
             if (imageResult === true) {
-                addRating(message.author.id, -3, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
+                // ZMĚNA: Snížen postih a přidán log pro ladění
+                addRating(message.author.id, -2, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
                 await updateRoleStatus(message.author.id, message.guild, message);
+                
+                try {
+                    const logChannel = await client.channels.fetch(logChannelId);
+                    if (logChannel) {
+                        logChannel.send(`[AI Moderace] Obrázek od <@${message.author.id}> byl označen jako nevhodný.\nOdkaz: ${mediaUrl}`);
+                    }
+                } catch(err) {}
+
                 try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
                 return true;
             } else if (imageResult === 'API_LIMIT') {
@@ -226,8 +231,7 @@ async function moderateMessage(message) {
             try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
         }
-
-        // OPRAVENÁ ČÁST: Kontrola slov pomocí regulárních výrazů
+        
         if (level3Regex.test(textToAnalyze)) {
             ratings[message.author.id] = [0]; saveRatings();
             await updateRoleStatus(message.author.id, message.guild, message);
@@ -272,6 +276,8 @@ async function moderateMessage(message) {
     return false;
 }
 
+// Ostatní části kódu (client.once, client.on, atd.) zůstávají beze změny
+// ...
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
     try {
