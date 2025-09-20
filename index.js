@@ -153,12 +153,19 @@ async function moderateMessage(message) {
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
 
     if (aiModerationChannelIds.includes(message.channel.id)) {
-        // --- NOVÁ LOGIKA: NEJDŘÍVE TEXT, POTOM OBRÁZKY ---
         let fullText = message.content;
         if (message.embeds.length > 0) {
             for (const embed of message.embeds) {
                 if (embed.description) fullText += ' ' + embed.description;
             }
+        }
+        if (message.reference && message.reference.messageId) {
+            try {
+                const repliedToMessage = await message.channel.messages.fetch(message.reference.messageId);
+                if (repliedToMessage && repliedToMessage.content) {
+                    fullText += ' ' + repliedToMessage.content;
+                }
+            } catch (err) { console.log("Nepodařilo se načíst citovanou zprávu."); }
         }
         const textToAnalyze = fullText.replace(mediaUrlRegex, '').trim();
 
