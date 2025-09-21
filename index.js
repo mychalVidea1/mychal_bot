@@ -242,20 +242,26 @@ async function moderateMessage(message) {
         }
 
         let textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
-
-        // Fallback logika pro text z embedů
+        
+        // <<< ZAČÁTEK ZMĚNY: Logika pro přeposlané zprávy (forward) a embedy
+        // Pokud je obsah prázdný, ale zpráva obsahuje embed (což je případ přeposlání),
+        // vezmeme text z embedu pro analýzu.
         if (textToAnalyze.length === 0 && message.embeds.length > 0) {
             const embed = message.embeds[0];
             let embedText = '';
 
+            // Přeposlaný text je v 'description'
             if (embed.description) {
                 embedText = embed.description;
-            } else if (embed.fields && embed.fields.length > 0) {
+            } 
+            // Pro jistotu zkontrolujeme i pole, i když to u 'forward' není běžné
+            else if (embed.fields && embed.fields.length > 0) {
                 embedText = embed.fields.map(field => field.value).join(' ');
             }
             textToAnalyze = embedText.trim();
         }
-
+        // <<< KONEC ZMĚNY
+        
         if (textToAnalyze.length === 0) return false;
 
         if (emojiSpamRegex.test(textToAnalyze)) {
@@ -463,7 +469,6 @@ client.on('messageCreate', async message => {
             scoreEmbed.setDescription(scoreEmbed.data.description + leaderboardString);
             return message.channel.send({ embeds: [scoreEmbed] });
         }
-        
         try { await message.delete(); } catch (err) {}
         const errorEmbed = new EmbedBuilder().setImage(errorGif);
         const targetUser = message.mentions.users.first() || message.author;
