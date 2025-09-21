@@ -6,12 +6,18 @@ const axios = require('axios');
 const sharp = require('sharp');
 const getFrames = require('gif-frames');
 
+// ======================= OPRAVA ZDE =======================
 const client = new Client({
     intents: [
-        GatewayIntentBits, Partials.Guilds, Partials.GuildMembers, Partials.MessageContent, Partials.GuildMessages, Partials.GuildModeration
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildModeration
     ],
     partials: [Partials.Channel, Partials.GuildMember, Partials.Message]
 });
+// ==========================================================
 
 // ======================= NASTAVENÍ =======================
 const prefix = 'm!';
@@ -145,17 +151,11 @@ async function analyzeImage(imageUrl) {
     }
 }
 
-// ======================= HLAVNÍ FUNKCE MODERACE (OPRAVENÁ) =======================
 async function moderateMessage(message) {
     if (!message.guild || !message.author || !message.author.bot) return false;
-    // ZMĚNA: Používáme message.member místo zbytečného fetch, je to rychlejší.
     if (!message.member || message.member.roles.cache.has(ownerRoleId)) return false;
 
     if (aiModerationChannelIds.includes(message.channel.id)) {
-        // ZMĚNA: Logika je navrácena do původní, funkční podoby.
-        // Nejprve se analyzuje text, poté obrázky.
-
-        // --- 1. BLOK PRO ANALÝZU TEXTU ---
         let textToAnalyze = message.content;
         if (message.embeds.length > 0) {
             for (const embed of message.embeds) {
@@ -164,7 +164,6 @@ async function moderateMessage(message) {
         }
         textToAnalyze = textToAnalyze.replace(mediaUrlRegex, '').trim();
         
-        // Pokud existuje nějaký text, zkontrolujeme ho.
         if (textToAnalyze.length > 0) {
             if (emojiSpamRegex.test(textToAnalyze)) {
                 try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
@@ -211,7 +210,6 @@ async function moderateMessage(message) {
             }
         }
 
-        // --- 2. BLOK PRO ANALÝZU OBRÁZKŮ ---
         let mediaUrl = null;
         if (message.attachments.size > 0) {
             const attachment = message.attachments.first();
@@ -250,8 +248,6 @@ async function moderateMessage(message) {
     }
     return false;
 }
-
-// ... zbytek kódu od client.once('clientReady') ...
 
 client.once('clientReady', async () => { console.log(`Bot je online jako ${client.user.tag}!`); try { const channel = await client.channels.fetch(startupChannelId); if (channel) { const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze pročištěna. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' }); await channel.send({ embeds: [startupEmbed] }); } } catch (error) {} });
 client.on('guildMemberUpdate', async (oldMember, newMember) => { if (newMember.roles.cache.has(ownerRoleId)) return; const oldTimeoutEnd = oldMember.communicationDisabledUntilTimestamp; const newTimeoutEnd = newMember.communicationDisabledUntilTimestamp; if (newTimeoutEnd && newTimeoutEnd > Date.now() && newTimeoutEnd !== oldTimeoutEnd) { addRating(newMember.id, -3, "Důvod: Timeout"); await updateRoleStatus(newMember.id, newMember.guild, null); try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`); } catch (err) {} } });
@@ -353,8 +349,6 @@ client.on('messageCreate', async message => {
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
-        // ZMĚNA: Opravena kritická chyba, která způsobovala pád bota.
-        // Bylo zde `calculateAverage(user.id)`, ale proměnná `user` zde neexistuje.
         const averageRating = calculateAverage(targetUser.id);
         let scoreMsg;
         if (targetUser.id === message.author.id) {
