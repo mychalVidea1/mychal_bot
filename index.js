@@ -42,16 +42,16 @@ let activeTextModel = 'gemini-2.5-flash-lite';
 const fallbackTextModel = 'gemini-1.5-flash-latest';
 let hasSwitchedTextFallback = false;
 
-// --- NOVÁ KONFIGURACE MODELŮ PRO OBRÁZKY S DVĚMA ZÁLOHAMI ---
+// Modely pro obrázkovou moderaci
 const activeImageModel = 'gemini-2.5-pro';
 const firstFallbackImageModel = 'gemini-1.5-pro-latest';
 const secondFallbackImageModel = 'gemini-2.5-flash';
 let hasSwitchedToFirstFallback = false;
 let hasSwitchedToSecondFallback = false;
 
-const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri' ];
-const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'mrdko', 'buzerant', 'buzna', 'zkurvysyn', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
-const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'curak', 'píča', 'zmrd', 'zmrde', 'píča' ];
+const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'neger' ];
+const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
+const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'curak', 'píča', 'zkurvysyn', 'dopíči', 'dokundy'];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -110,17 +110,11 @@ async function analyzeText(text) {
     }
 }
 
-// --- PŘEPRACOVANÁ FUNKCE ANALYZEIMAGE S VÍCE FALLBACKY ---
 async function analyzeImage(imageUrl) {
     if (!geminiApiKey) return false;
-
-    // Pořadí modelů, které se mají zkusit
     const modelsToTry = [activeImageModel, firstFallbackImageModel, secondFallbackImageModel];
     let lastError = null;
-
-    // Předzpracování obrázku (mimo smyčku, aby se nedělalo vícekrát)
-    let imageBuffer;
-    let mimeType;
+    let imageBuffer, mimeType;
     try {
         imageBuffer = (await axios.get(imageUrl, { responseType: 'arraybuffer' })).data;
         mimeType = (await axios.head(imageUrl)).headers['content-type'];
@@ -141,37 +135,30 @@ async function analyzeImage(imageUrl) {
         if (mimeType.startsWith('image/')) {
             imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
         } else {
-            return false; // Není to obrázek
+            return false;
         }
     } catch (preprocessingError) {
         console.error(`Chyba při předzpracování obrázku ${imageUrl}:`, preprocessingError.message);
         return 'FILTERED';
     }
-    
     const base64Image = imageBuffer.toString('base64');
     const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je nevhodný) nebo "NE" (pokud je v pořádku).`;
     const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
-
     for (const model of modelsToTry) {
         try {
             console.log(`Zkouším analýzu obrázku s modelem: ${model}`);
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-            
             if (!response.data.candidates || response.data.candidates.length === 0) {
                 console.log(`Gemini obrázková analýza (${model}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
-                return 'FILTERED'; // Bezpečnostní filtr není chyba, rovnou vracíme výsledek
+                return 'FILTERED';
             }
-
             const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
             console.log(`Gemini analýza pro "${imageUrl}" (${model}) byla ÚSPĚŠNÁ: Odpověď - ${result}`);
-            return result.includes("ANO"); // Úspěch, vracíme výsledek
-        
+            return result.includes("ANO");
         } catch (error) {
             lastError = error;
             const status = error.response ? error.response.status : null;
-
             if (status === 429 || status === 404 || status === 500) {
-                // Chyba, která opravňuje přechod na další model
                 if (model === activeImageModel && !hasSwitchedToFirstFallback) {
                     console.warn(`Model ${model} selhal (stav: ${status}). Přepínám na první zálohu: ${firstFallbackImageModel}`);
                     hasSwitchedToFirstFallback = true;
@@ -181,21 +168,17 @@ async function analyzeImage(imageUrl) {
                     hasSwitchedToSecondFallback = true;
                     try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🔴 **KRITICKÉ VAROVÁNÍ:** Záložní AI model pro obrázky selhal. Přepínám na poslední záchrannou možnost (${secondFallbackImageModel}).`); } catch (err) {}
                 }
-                // Pokračujeme na další iteraci smyčky (další model)
             } else {
-                // Jiná, neočekávaná chyba - nemá smysl zkoušet dál
                 console.error(`Gemini obrázková analýza (${model}) selhala s neočekávanou chybou pro ${imageUrl}. Důvod: ${error.message}`);
-                break; // Přerušíme smyčku
+                break;
             }
         }
     }
-
-    // Pokud smyčka doběhla do konce a žádný model neuspěl
     console.error(`Všechny AI modely pro analýzu obrázků selhaly pro ${imageUrl}. Poslední chyba: ${lastError.message}`);
     return 'FILTERED';
 }
 
-
+// --- FUNKCE S FINÁLNÍ LOGIKOU PRO KONTROLU EMBEDŮ ---
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = await message.guild.members.fetch(message.author.id).catch(() => null);
@@ -246,17 +229,17 @@ async function moderateMessage(message) {
 
         let textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
 
+        // Fallback logika pro text z embedů
         if (textToAnalyze.length === 0 && message.embeds.length > 0) {
             const embed = message.embeds[0];
-            const embedTexts = [];
-            if (embed.description) embedTexts.push(embed.description);
-            if (embed.fields && embed.fields.length > 0) {
-                embed.fields.forEach(field => {
-                    embedTexts.push(field.name);
-                    embedTexts.push(field.value);
-                });
+            let embedText = '';
+
+            if (embed.description) {
+                embedText = embed.description;
+            } else if (embed.fields && embed.fields.length > 0) {
+                embedText = embed.fields.map(field => field.value).join(' ');
             }
-            textToAnalyze = embedTexts.join(' ').trim();
+            textToAnalyze = embedText.trim();
         }
 
         if (textToAnalyze.length === 0) return false;
@@ -324,22 +307,16 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
         return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
     }
-
     const [action, originalMessageId, authorId] = interaction.customId.split('-');
-
     try {
         const originalMessageUrl = interaction.message.embeds[0].fields[0].value;
         const urlParts = originalMessageUrl.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
         if (!urlParts) throw new Error("Nelze najít původní zprávu z URL.");
-        
         const channelId = urlParts[2];
         const messageId = urlParts[3];
-
         const channel = await client.channels.fetch(channelId);
         if (!channel) throw new Error("Původní kanál nenalezen.");
-
         const messageToModerate = await channel.messages.fetch(messageId).catch(() => null);
-
         if (action === 'approve') {
             const approvedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
                 .setColor('#00FF00').setTitle('✅ Schváleno Moderátorem')
@@ -497,7 +474,6 @@ client.on('messageCreate', async message => {
         setTimeout(() => reply.delete().catch(() => {}), 10000);
     }
 });
-
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) {
         try { await newMessage.fetch(); } catch { return; }
@@ -506,5 +482,4 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
-
 client.login(process.env.BOT_TOKEN);
