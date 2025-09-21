@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const sharp = require('sharp');
@@ -24,6 +24,7 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
 const ownerRoleId = '875091178322812988';
 const activityChannelId = '875097279650992128';
+const filterWhitelistChannelId = '875093420090216499';
 const startupChannelId = '1005985776158388264';
 const logChannelId = '1025689879973203968';
 const aiModerationChannelIds = ['875097279650992128', '1261094481415897128', '1275999194313785415', '1322337083745898616', '1419340737048350880'];
@@ -33,13 +34,14 @@ const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
-const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+/i;
+const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
-let activeTextModel = 'gemini-2.5-flash';
-const fallbackTextModel = 'gemini-2.5-flash-lite';
+let activeTextModel = 'gemini-2.5-flash-lite';
+const fallbackTextModel = 'gemini-1.5-flash-latest';
 let hasSwitchedTextFallback = false;
 
+// Nové proměnné pro záložní model obrázků
 let activeImageModel = 'gemini-2.5-pro';
 const fallbackImageModel = 'gemini-1.5-pro-latest';
 let hasSwitchedImageFallback = false;
@@ -73,23 +75,6 @@ function addRating(userId, rating, reason = "") { if (!ratings[userId]) ratings[
 function cleanupOldRatings() { let changed = false; for (const userId in ratings) { if (ratings[userId].length > 10) { ratings[userId] = ratings[userId].slice(-10); changed = true; } } if (changed) saveRatings(); }
 cleanupOldRatings();
 
-async function resolveMediaUrl(url) {
-    if (url && (url.includes('tenor.com/view') || url.includes('giphy.com/gifs'))) {
-        try {
-            const response = await axios.get(url, { timeout: 3000 });
-            const html = response.data;
-            const match = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/);
-            if (match && match[1]) {
-                console.log(`Přeloženo URL: ${url} -> ${match[1]}`);
-                return match[1];
-            }
-        } catch (error) {
-            console.error(`Nepodařilo se přeložit URL: ${url}`);
-        }
-    }
-    return url;
-}
-
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
     const prompt = `Jsi AI moderátor pro neformální chat. Je následující text urážlivý, toxický nebo jde o šikanu v kontextu konverzace mezi přáteli? Ignoruj běžná sprostá slova použitá jako citoslovce. Zaměř se pouze na přímé útoky na ostatní uživatele. Odpověz jen "ANO" (pokud je to útok) nebo "NE". Text: "${text}"`;
@@ -97,54 +82,79 @@ async function analyzeText(text) {
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!candidateText) { return false; }
+        if (!candidateText) {
+            console.log(`Gemini textová analýza (${activeTextModel}) byla zablokována bezpečnostním filtrem.`);
+            return false;
+        }
         const result = candidateText.trim().toUpperCase();
+        console.log(`Gemini textová analýza (${activeTextModel}) pro text "${text}": Odpověď - ${result}`);
         return result.includes("ANO");
     } catch (error) {
         const status = error.response ? error.response.status : null;
         if ((status === 429 || status === 404) && !hasSwitchedTextFallback) {
-            console.warn(`Model ${activeTextModel} selhal (stav: ${status}). Přepínám na záložní model.`);
-            activeTextModel = fallbackTextModel; hasSwitchedTextFallback = true;
-            try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model pro text selhal. Automaticky přepínám na záložní model.`); } catch (err) {}
+            console.warn(`Model ${activeTextModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackTextModel}`);
+            activeTextModel = fallbackTextModel;
+            hasSwitchedTextFallback = true;
+            try {
+                const channel = await client.channels.fetch(logChannelId);
+                if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model pro text selhal. Automaticky přepínám na záložní model.`);
+            } catch (err) {}
             return analyzeText(text);
         }
         if (status === 429) { return 'API_LIMIT'; }
+        console.error(`Chyba při komunikaci s Gemini API (${activeTextModel}):`, error.response ? error.response.data.error : error.message);
         return false;
     }
 }
 
 async function analyzeImage(imageUrl) {
-    if (!imageUrl || !geminiApiKey) return false;
+    if (!geminiApiKey) return false;
     try {
         let imageBuffer = (await axios.get(imageUrl, { responseType: 'arraybuffer' })).data;
         let mimeType = (await axios.head(imageUrl)).headers['content-type'];
-        if (mimeType.includes('gif')) {
+        if (mimeType.startsWith('image/gif')) {
             const frames = await getFrames({ url: imageBuffer, frames: 'all', outputType: 'png', quality: 10 });
             if (frames.length === 0) return false;
             const middleFrameIndex = Math.floor(frames.length / 2);
             const frameStream = frames[middleFrameIndex].getImage();
             const chunks = [];
-            await new Promise((resolve, reject) => { frameStream.on('data', chunk => chunks.push(chunk)); frameStream.on('error', reject); frameStream.on('end', resolve); });
-            imageBuffer = Buffer.concat(chunks); mimeType = 'image/png';
+            await new Promise((resolve, reject) => {
+                frameStream.on('data', chunk => chunks.push(chunk));
+                frameStream.on('error', reject);
+                frameStream.on('end', resolve);
+            });
+            imageBuffer = Buffer.concat(chunks);
+            mimeType = 'image/png';
         }
         if (mimeType.startsWith('image/')) {
             imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
-        } else { return false; }
+        } else {
+            return false;
+        }
         const base64Image = imageBuffer.toString('base64');
-        const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí, krev ve hrách, herní UI a běžné memy. Odpověz jen "ANO" nebo "NE".`;
+        const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je skutečně nevhodný) nebo "NE" (pokud je v pořádku).`;
         const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeImageModel}:generateContent?key=${geminiApiKey}`, requestBody);
-        if (!response.data.candidates || response.data.candidates.length === 0) { return 'FILTERED'; }
+        if (!response.data.candidates || response.data.candidates.length === 0) {
+            console.log(`Gemini obrázková analýza (${activeImageModel}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`);
+            return 'FILTERED';
+        }
         const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+        console.log(`Gemini analýza pro "${imageUrl}" (${activeImageModel}): Odpověď - ${result}`);
         return result.includes("ANO");
     } catch (error) {
         const status = error.response ? error.response.status : null;
         if ((status === 429 || status === 404 || status === 500) && !hasSwitchedImageFallback) {
-            console.warn(`Model obrázků ${activeImageModel} selhal (stav: ${status}). Přepínám na záložní model.`);
-            activeImageModel = fallbackImageModel; hasSwitchedImageFallback = true;
-            try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟠 **VAROVÁNÍ:** Primární AI model pro obrázky selhal. Přepínám na záložní.`); } catch (err) {}
-            return analyzeImage(imageUrl);
+            console.warn(`Model obrázků ${activeImageModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackImageModel}`);
+            activeImageModel = fallbackImageModel;
+            hasSwitchedImageFallback = true;
+            try {
+                const channel = await client.channels.fetch(logChannelId);
+                if (channel) channel.send(`🟠 **VAROVÁNÍ:** Primární AI model pro obrázky selhal. Automaticky přepínám na záložní model.`);
+            } catch (err) {}
+            return analyzeImage(imageUrl); // Zkusit znovu se záložním modelem
         }
+        console.log(`Gemini obrázková analýza (${activeImageModel}) selhala pro obrázek: ${imageUrl}. Důvod: ${error.message}`);
         return 'FILTERED';
     }
 }
@@ -158,7 +168,7 @@ async function moderateMessage(message) {
         let mediaUrl = null;
         if (message.attachments.size > 0) {
             const attachment = message.attachments.first();
-            if (attachment.size < MAX_FILE_SIZE_BYTES) {
+            if (attachment.size < MAX_FILE_SIZE_BYTES && (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'))) {
                 mediaUrl = attachment.url;
             }
         }
@@ -166,8 +176,6 @@ async function moderateMessage(message) {
             const embed = message.embeds[0];
             if (embed.image) mediaUrl = embed.image.url;
             else if (embed.thumbnail) mediaUrl = embed.thumbnail.url;
-            else if (embed.video) mediaUrl = embed.video.url;
-            else if (embed.url) mediaUrl = embed.url; // Záchrana pro embedy, které jsou jen odkaz
         }
         if (!mediaUrl) {
             const match = message.content.match(mediaUrlRegex);
@@ -175,9 +183,7 @@ async function moderateMessage(message) {
         }
 
         if (mediaUrl) {
-            const directMediaUrl = await resolveMediaUrl(mediaUrl);
-            const imageResult = await analyzeImage(directMediaUrl);
-            
+            const imageResult = await analyzeImage(mediaUrl);
             if (imageResult === true) {
                 addRating(message.author.id, -2, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
                 await updateRoleStatus(message.author.id, message.guild, message);
@@ -188,25 +194,20 @@ async function moderateMessage(message) {
                 } catch (err) {}
                 return true;
             } else if (imageResult === 'FILTERED') {
-                console.log(`Zpráva od ${message.author.tag} byla automaticky smazána kvůli bezpečnostnímu filtru AI.`);
-                try {
-                    await message.delete();
-                    const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
-                    if (logChannel) {
-                        const embed = new EmbedBuilder().setColor('#FFA500').setTitle('🗑️ Automaticky smazáno').setDescription(`Zpráva od <@${message.author.id}> byla preventivně smazána, protože ji bezpečnostní filtr AI odmítl zpracovat.\n\n**Uživateli nebyly strženy žádné body.**`).setImage(directMediaUrl).setTimestamp();
-                        await logChannel.send({ embeds: [embed] });
-                    }
-                } catch (err) {}
-                return true;
+                const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
+                if (logChannel) {
+                    const embed = new EmbedBuilder().setColor('#FFA500').setTitle('⚠️ AI Moderace Selhala').setDescription(`AI nedokázala analyzovat obrázek od <@${message.author.id}>.\nŽádám o lidský posudek.`).setImage(mediaUrl).addFields({ name: 'Odkaz na zprávu', value: `[Klikni zde](${message.url})` }).setTimestamp();
+                    const row = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`approve-${message.id}-${message.author.id}`).setLabel('✅ Ponechat').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`punish-${message.id}-${message.author.id}`).setLabel('❌ Smazat a potrestat').setStyle(ButtonStyle.Danger)
+                    );
+                    await logChannel.send({ embeds: [embed], components: [row] });
+                }
+                return false;
             }
         }
         
-        let textToAnalyze = message.content;
-        if (message.embeds.length > 0 && message.embeds[0].description) {
-            textToAnalyze += ' ' + message.embeds[0].description;
-        }
-        textToAnalyze = textToAnalyze.replace(mediaUrlRegex, '').trim();
-        
+        const textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
         if (textToAnalyze.length === 0) return false;
 
         if (emojiSpamRegex.test(textToAnalyze)) {
@@ -265,6 +266,53 @@ client.once('clientReady', async () => {
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) {}
+});
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
+    }
+
+    const [action, originalMessageId, authorId] = interaction.customId.split('-');
+
+    try {
+        const originalMessageUrl = interaction.message.embeds[0].fields[0].value;
+        const urlParts = originalMessageUrl.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
+        if (!urlParts) throw new Error("Nelze najít původní zprávu z URL.");
+        
+        const channelId = urlParts[2];
+        const messageId = urlParts[3];
+
+        const channel = await client.channels.fetch(channelId);
+        if (!channel) throw new Error("Původní kanál nenalezen.");
+
+        const messageToModerate = await channel.messages.fetch(messageId).catch(() => null);
+
+        if (action === 'approve') {
+            const approvedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
+                .setColor('#00FF00').setTitle('✅ Schváleno Moderátorem')
+                .setDescription(`Obrázek od <@${authorId}> byl ponechán.\nSchválil: <@${interaction.user.id}>`);
+            await interaction.update({ embeds: [approvedEmbed], components: [] });
+        } else if (action === 'punish') {
+            addRating(authorId, -2, `Důvod: Nevhodný obrázek (rozhodnutí moderátora)`);
+            if (interaction.guild) {
+                await updateRoleStatus(authorId, interaction.guild);
+            }
+            if (messageToModerate) {
+                await messageToModerate.delete().catch(err => console.log("Nepodařilo se smazat zprávu."));
+                const warningMsg = await channel.send(`<@${authorId}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`);
+                setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+            }
+            const punishedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
+                .setColor('#FF0000').setTitle('❌ Smazáno a Potrestáno Moderátorem')
+                .setDescription(`Obrázek od <@${authorId}> byl smazán a uživatel potrestán.\nModerátor: <@${interaction.user.id}>`);
+            await interaction.update({ embeds: [punishedEmbed], components: [] });
+        }
+    } catch (error) {
+        console.error("Chyba při zpracování interakce:", error);
+        await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', ephemeral: true });
+    }
 });
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
@@ -387,7 +435,7 @@ client.on('messageCreate', async message => {
             setTimeout(() => reply.delete().catch(() => {}), 10000);
             return;
         }
-        const averageRating = calculateAverage(user.id);
+        const averageRating = calculateAverage(targetUser.id);
         let scoreMsg;
         if (targetUser.id === message.author.id) {
             scoreMsg = `🌟 <@${targetUser.id}> Tvé hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
