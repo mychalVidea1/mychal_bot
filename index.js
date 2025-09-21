@@ -6,7 +6,6 @@ const axios = require('axios');
 const sharp = require('sharp');
 const getFrames = require('gif-frames');
 
-// ======================= OPRAVA ZDE =======================
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -17,7 +16,6 @@ const client = new Client({
     ],
     partials: [Partials.Channel, Partials.GuildMember, Partials.Message]
 });
-// ==========================================================
 
 // ======================= NASTAVENÍ =======================
 const prefix = 'm!';
@@ -46,12 +44,9 @@ let activeImageModel = 'gemini-2.5-pro';
 const fallbackImageModel = 'gemini-1.5-pro-latest';
 let hasSwitchedImageFallback = false;
 
-const level3Words = [
-    'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'niggah', 'niglet',
-    'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'negři', 'negrík', 'negríci', 'negríček', 'negríčci', 'negricek', 'negricci', 'negryně', 'negryne'
-];
-const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn', 'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
-const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'curak', 'píča' ];
+const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri' ];
+const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'šulin', 'zkurvysyn', 'kurva', 'kurvo', 'kurvy', 'píča', 'pica', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler', 'plynu', 'koncentrák', 'holocaust', 'sieg heil' ];
+const level1Words = [ 'debil', 'kretén', 'sračka', 'doprdele', 'píčo', 'pičo', 'fakin', 'curak', 'píča' ];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -70,10 +65,10 @@ try { ratings = JSON.parse(fs.readFileSync(ratingsFilePath, 'utf8')); } catch (e
 let messageCounts = {};
 try { messageCounts = JSON.parse(fs.readFileSync(messageCountsFilePath, 'utf8')); } catch (err) {}
 
-function saveRatings() { try { fs.writeFileSync(ratingsFilePath, JSON.stringify(ratings, null, 2)); } catch (err) { console.error("Chyba při ukládání ratings:", err); } }
-function saveMessageCounts() { try { fs.writeFileSync(messageCountsFilePath, JSON.stringify(messageCounts, null, 2)); } catch (err) { console.error("Chyba při ukládání message_counts:", err); } }
+function saveRatings() { try { fs.writeFileSync(ratingsFilePath, JSON.stringify(ratings, null, 2)); } catch (err) {} }
+function saveMessageCounts() { try { fs.writeFileSync(messageCountsFilePath, JSON.stringify(messageCounts, null, 2)); } catch (err) {} }
 function calculateAverage(userId) { const userRatings = ratings[userId] || []; if (userRatings.length === 0) return 5.0; let average = userRatings.reduce((a, b) => a + b, 0) / userRatings.length; return Math.max(0, Math.min(10, average));}
-async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) return; const member = await guild.members.fetch(userId).catch(() => null); const role = guild.roles.cache.get(roleId); if (!member || !role) return; const averageRating = calculateAverage(userId); const hasRole = member.roles.cache.has(roleId); if (averageRating > 9 && !hasRole) { await member.roles.add(role); const messageContent = `🎉 Gratulace, <@${member.id}>! Tvé skóre tě katapultovalo mezi elitu a získal(a) jsi roli **${role.name}**! 🚀`; if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) { sourceMessage.reply(messageContent).catch(() => {}); } else { const channel = await client.channels.fetch(logChannelId).catch(() => null); if (channel) channel.send(messageContent).catch(() => {}); } } else if (averageRating <= 9 && hasRole) { await member.roles.remove(role); const messageContent = `📉 Pozor, <@${member.id}>! Tvé hodnocení kleslo a přišel(a) jsi o roli **${role.name}**. Zaber!`; if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) { sourceMessage.reply(messageContent).catch(() => {}); } else { const channel = await client.channels.fetch(logChannelId).catch(() => null); if (channel) channel.send(messageContent).catch(() => {}); } } } catch (error) { console.error("Chyba při aktualizaci role:", error); } }
+async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) return; const member = await guild.members.fetch(userId).catch(() => null); const role = guild.roles.cache.get(roleId); if (!member || !role) return; const averageRating = calculateAverage(userId); const hasRole = member.roles.cache.has(roleId); if (averageRating > 9 && !hasRole) { await member.roles.add(role); const messageContent = `🎉 Gratulace, <@${member.id}>! Tvé skóre tě katapultovalo mezi elitu a získal(a) jsi roli **${role.name}**! 🚀`; if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) { sourceMessage.reply(messageContent).catch(() => {}); } else { const channel = await client.channels.fetch(logChannelId).catch(() => null); if (channel) channel.send(messageContent).catch(() => {}); } } else if (averageRating <= 9 && hasRole) { await member.roles.remove(role); const messageContent = `📉 Pozor, <@${member.id}>! Tvé hodnocení kleslo a přišel(a) jsi o roli **${role.name}**. Zaber!`; if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) { sourceMessage.reply(messageContent).catch(() => {}); } else { const channel = await client.channels.fetch(logChannelId).catch(() => null); if (channel) channel.send(messageContent).catch(() => {}); } } } catch (error) {} }
 function addRating(userId, rating, reason = "") { if (!ratings[userId]) ratings[userId] = []; ratings[userId].push(rating); if (ratings[userId].length > 10) ratings[userId].shift(); saveRatings(); console.log(`Uživatel ${userId} dostal hodnocení ${rating}. ${reason}`);}
 function cleanupOldRatings() { let changed = false; for (const userId in ratings) { if (ratings[userId].length > 10) { ratings[userId] = ratings[userId].slice(-10); changed = true; } } if (changed) saveRatings(); }
 cleanupOldRatings();
@@ -84,20 +79,23 @@ async function resolveMediaUrl(url) {
             const response = await axios.get(url, { timeout: 3000 });
             const html = response.data;
             const match = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/);
-            if (match && match[1]) { return match[1]; }
+            if (match && match[1]) {
+                console.log(`Přeloženo URL: ${url} -> ${match[1]}`);
+                return match[1];
+            }
         } catch (error) { console.error(`Nepodařilo se přeložit URL: ${url}`); }
     }
     return url;
 }
 
 async function analyzeText(text) {
-    if (!geminiApiKey) { console.log("Chybí Gemini API klíč."); return false; }
-    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit pouze zprávy, které jsou skutečně škodlivé, poškozující nebo urážlivé. Ignoruj hodně lehké nadávky a přátelské pošťuchování. Zasáhni, jen pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE". Text: "${text}"`;
+    if (!geminiApiKey) return false;
+    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit pouze zprávy, které jsou skutečně škodlivé. Ignoruj běžné nadávky a přátelské pošťuchování mezi kamarády. Zasáhni, jen pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE". Text: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!candidateText) return false;
+        if (!candidateText) { return false; }
         const result = candidateText.trim().toUpperCase();
         return result.includes("ANO");
     } catch (error) {
@@ -108,8 +106,7 @@ async function analyzeText(text) {
             try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model pro text selhal. Automaticky přepínám na záložní model.`); } catch (err) {}
             return analyzeText(text);
         }
-        if (status === 429) return 'API_LIMIT';
-        console.error("Chyba při analýze textu:", error.message);
+        if (status === 429) { return 'API_LIMIT'; }
         return false;
     }
 }
@@ -135,7 +132,7 @@ async function analyzeImage(imageUrl) {
         const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí, krev ve hrách, herní UI a běžné memy. Odpověz jen "ANO" nebo "NE".`;
         const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeImageModel}:generateContent?key=${geminiApiKey}`, requestBody);
-        if (!response.data.candidates || response.data.candidates.length === 0) return 'FILTERED';
+        if (!response.data.candidates || response.data.candidates.length === 0) { return 'FILTERED'; }
         const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
         return result.includes("ANO");
     } catch (error) {
@@ -146,27 +143,35 @@ async function analyzeImage(imageUrl) {
             try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟠 **VAROVÁNÍ:** Primární AI model pro obrázky selhal. Přepínám na záložní.`); } catch (err) {}
             return analyzeImage(imageUrl);
         }
-        console.error("Chyba při analýze obrázku:", error.message);
         return 'FILTERED';
     }
 }
 
 async function moderateMessage(message) {
-    if (!message.guild || !message.author || !message.author.bot) return false;
-    if (!message.member || message.member.roles.cache.has(ownerRoleId)) return false;
+    if (!message.guild || !message.author || message.author.bot) return false;
+    const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+    if (!member || member.roles.cache.has(ownerRoleId)) return false;
 
     if (aiModerationChannelIds.includes(message.channel.id)) {
-        let textToAnalyze = message.content;
+        let fullText = message.content;
         if (message.embeds.length > 0) {
             for (const embed of message.embeds) {
-                if (embed.description) textToAnalyze += ' ' + embed.description;
+                if (embed.description) fullText += ' ' + embed.description;
             }
         }
-        textToAnalyze = textToAnalyze.replace(mediaUrlRegex, '').trim();
-        
-        if (textToAnalyze.length > 0) {
+        if (message.reference && message.reference.messageId) {
+            try {
+                const repliedToMessage = await message.channel.messages.fetch(message.reference.messageId);
+                if (repliedToMessage && repliedToMessage.content) {
+                    fullText += ' ' + repliedToMessage.content;
+                }
+            } catch (err) { console.log("Nepodařilo se načíst citovanou zprávu."); }
+        }
+        const textToAnalyze = fullText.replace(mediaUrlRegex, '').trim();
+
+        if (textToAnalyze) {
             if (emojiSpamRegex.test(textToAnalyze)) {
-                try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
+                try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
                 return true;
             }
             if (level3Regex.test(textToAnalyze)) {
@@ -219,6 +224,7 @@ async function moderateMessage(message) {
             const embed = message.embeds[0];
             if (embed.image) mediaUrl = embed.image.url;
             else if (embed.thumbnail) mediaUrl = embed.thumbnail.url;
+            else if (embed.video) mediaUrl = embed.video.url;
         }
         if (!mediaUrl) {
             const match = message.content.match(mediaUrlRegex);
@@ -228,12 +234,14 @@ async function moderateMessage(message) {
         if (mediaUrl) {
             const directMediaUrl = await resolveMediaUrl(mediaUrl);
             const imageResult = await analyzeImage(directMediaUrl);
+            
             if (imageResult === true) {
                 addRating(message.author.id, -2, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
                 await updateRoleStatus(message.author.id, message.guild, message);
                 try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
                 return true;
             } else if (imageResult === 'FILTERED') {
+                console.log(`Zpráva od ${message.author.tag} byla automaticky smazána kvůli bezpečnostnímu filtru AI.`);
                 try {
                     await message.delete();
                     const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
@@ -366,8 +374,7 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
         try { await newMessage.fetch(); } catch { return; }
     }
     if (newMessage.author.bot || !newMessage.guild) return;
-    if (oldMessage.content === newMessage.content) return;
+    if (oldMessage.content === newMessage.content && oldMessage.attachments.size === newMessage.attachments.size && oldMessage.embeds.length === newMessage.embeds.length) return;
     await moderateMessage(newMessage);
 });
-
 client.login(process.env.BOT_TOKEN);
