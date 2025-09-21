@@ -37,11 +37,12 @@ const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
+// Modely pro textovou moderaci
 let activeTextModel = 'gemini-2.5-flash-lite';
 const fallbackTextModel = 'gemini-1.5-flash-latest';
 let hasSwitchedTextFallback = false;
 
-// Nové proměnné pro záložní model obrázků
+// Modely pro obrázkovou moderaci
 let activeImageModel = 'gemini-2.5-pro';
 const fallbackImageModel = 'gemini-1.5-pro-latest';
 let hasSwitchedImageFallback = false;
@@ -77,7 +78,10 @@ cleanupOldRatings();
 
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
-    const prompt = `Jsi AI moderátor pro neformální chat. Je následující text urážlivý, toxický nebo jde o šikanu v kontextu konverzace mezi přáteli? Ignoruj běžná sprostá slova použitá jako citoslovce. Zaměř se pouze na přímé útoky na ostatní uživatele. Odpověz jen "ANO" (pokud je to útok) nebo "NE". Text: "${text}"`;
+    
+    // --- PROMPT PRO TEXTOVOU MODERACI ---
+    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou škodlivé. Ignoruj běžné lehké nadávky a přátelské pošťuchování. Zasáhni, pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE".\n\nText: "${text}"`;
+    
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
@@ -132,7 +136,10 @@ async function analyzeImage(imageUrl) {
             return false;
         }
         const base64Image = imageBuffer.toString('base64');
-        const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je skutečně nevhodný) nebo "NE" (pokud je v pořádku).`;
+        
+        // --- PROMPT PRO OBRÁZKOVOU MODERACI ---
+        const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je nevhodný) nebo "NE" (pokud je v pořádku).`;
+        
         const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeImageModel}:generateContent?key=${geminiApiKey}`, requestBody);
         if (!response.data.candidates || response.data.candidates.length === 0) {
@@ -159,11 +166,12 @@ async function analyzeImage(imageUrl) {
     }
 }
 
+// --- UPRAVENÁ FUNKCE PRO MODERACI ZPRÁV (včetně embedů) ---
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = await message.guild.members.fetch(message.author.id).catch(() => null);
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
-    
+
     if (aiModerationChannelIds.includes(message.channel.id)) {
         let mediaUrl = null;
         if (message.attachments.size > 0) {
@@ -206,8 +214,26 @@ async function moderateMessage(message) {
                 return false;
             }
         }
-        
-        const textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
+
+        let textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
+
+        // Fallback pro přeposlané zprávy a jiné embedy
+        if (textToAnalyze.length === 0 && message.embeds.length > 0) {
+            const embed = message.embeds[0];
+            const embedTexts = [];
+
+            if (embed.description) {
+                embedTexts.push(embed.description);
+            }
+            if (embed.fields && embed.fields.length > 0) {
+                embed.fields.forEach(field => {
+                    embedTexts.push(field.name);
+                    embedTexts.push(field.value);
+                });
+            }
+            textToAnalyze = embedTexts.join(' ').trim();
+        }
+
         if (textToAnalyze.length === 0) return false;
 
         if (emojiSpamRegex.test(textToAnalyze)) {
