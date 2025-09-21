@@ -37,11 +37,6 @@ const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 
-// Modely pro textovou moderaci
-let activeTextModel = 'gemini-2.5-flash-lite';
-const fallbackTextModel = 'gemini-1.5-flash-latest';
-let hasSwitchedTextFallback = false;
-
 // Modely pro obrázkovou moderaci
 const activeImageModel = 'gemini-2.5-pro';
 const firstFallbackImageModel = 'gemini-1.5-pro-latest';
@@ -80,34 +75,53 @@ cleanupOldRatings();
 
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
+
+    const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
+    let lastError = null;
+
     const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou škodlivé. Ignoruj běžné lehké nadávky a přátelské pošťuchování. Zasáhni, pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE".\n\nText: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
-    try {
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${activeTextModel}:generateContent?key=${geminiApiKey}`, requestBody);
-        const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!candidateText) {
-            console.log(`Gemini textová analýza (${activeTextModel}) byla zablokována bezpečnostním filtrem.`);
-            return false;
+
+    for (const model of modelsToTry) {
+        try {
+            console.log(`Zkouším textovou analýzu s modelem: ${model}`);
+            const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
+
+            const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!candidateText) {
+                console.log(`Gemini textová analýza (${model}) byla zablokována bezpečnostním filtrem.`);
+                lastError = new Error("Blocked by safety filter");
+                continue;
+            }
+
+            const result = candidateText.trim().toUpperCase();
+            console.log(`Gemini textová analýza (${model}) pro text "${text}" byla ÚSPĚŠNÁ: Odpověď - ${result}`);
+            return result.includes("ANO");
+
+        } catch (error) {
+            lastError = error;
+            const status = error.response ? error.response.status : null;
+
+            if (status === 429 || status === 404 || status === 500) {
+                 console.warn(`Model ${model} selhal (stav: ${status}). Přepínám na další model.`);
+                 try {
+                    const channel = await client.channels.fetch(logChannelId);
+                    if (channel) channel.send(`🟡 **VAROVÁNÍ:** AI model pro text (${model}) selhal. Automaticky zkouším další v pořadí.`);
+                 } catch (err) {}
+            } else {
+                console.error(`Gemini textová analýza (${model}) selhala s neočekávanou chybou pro text "${text}". Důvod: ${error.message}`);
+                break;
+            }
         }
-        const result = candidateText.trim().toUpperCase();
-        console.log(`Gemini textová analýza (${activeTextModel}) pro text "${text}": Odpověď - ${result}`);
-        return result.includes("ANO");
-    } catch (error) {
-        const status = error.response ? error.response.status : null;
-        if ((status === 429 || status === 404) && !hasSwitchedTextFallback) {
-            console.warn(`Model ${activeTextModel} selhal (stav: ${status}). Přepínám na záložní model: ${fallbackTextModel}`);
-            activeTextModel = fallbackTextModel;
-            hasSwitchedTextFallback = true;
-            try {
-                const channel = await client.channels.fetch(logChannelId);
-                if (channel) channel.send(`🟡 **VAROVÁNÍ:** Primární AI model pro text selhal. Automaticky přepínám na záložní model.`);
-            } catch (err) {}
-            return analyzeText(text);
-        }
-        if (status === 429) { return 'API_LIMIT'; }
-        console.error(`Chyba při komunikaci s Gemini API (${activeTextModel}):`, error.response ? error.response.data.error : error.message);
-        return false;
     }
+
+    console.error(`Všechny AI modely pro analýzu textu selhaly. Poslední chyba: ${lastError.message}`);
+    const lastStatus = lastError.response ? lastError.response.status : null;
+    if (lastStatus === 429) {
+        return 'API_LIMIT';
+    }
+
+    return false;
 }
 
 async function analyzeImage(imageUrl) {
