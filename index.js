@@ -88,7 +88,7 @@ async function addActivityRating(userId, reason = "") {
         { $inc: { average: 0.1 } },
         { upsert: true, returnDocument: 'after' }
     );
-    const newAverage = result.value.average;
+    const newAverage = result.average;
     console.log(`Uživatel ${userId} dostal +0.1 za aktivitu. Nový průměr: ${newAverage.toFixed(2)}. Důvod: ${reason}`);
 }
 
@@ -259,7 +259,44 @@ client.once('clientReady', async () => {
 client.on('guildCreate', guild => { if (guild.id !== allowedGuildId) { guild.leave(); } });
 
 client.on('interactionCreate', async interaction => {
-    if (interaction.isButton()) { /* ... */ return; }
+    if (interaction.isButton()) {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral });
+        }
+        const [action, originalMessageId, authorId] = interaction.customId.split('-');
+        try {
+            const originalMessageUrl = interaction.message.embeds[0].fields[0].value;
+            const urlParts = originalMessageUrl.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
+            if (!urlParts) throw new Error("Nelze najít původní zprávu z URL.");
+            const channelId = urlParts[2];
+            const messageId = urlParts[3];
+            const channel = await client.channels.fetch(channelId);
+            if (!channel) throw new Error("Původní kanál nenalezen.");
+            const messageToModerate = await channel.messages.fetch(messageId).catch(() => null);
+
+            if (action === 'approve') {
+                const approvedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON()).setColor('#00FF00').setTitle('✅ Schváleno Moderátorem').setDescription(`Obrázek od <@${authorId}> byl ponechán.\nSchválil: <@${interaction.user.id}>`);
+                await interaction.update({ embeds: [approvedEmbed], components: [] });
+            } else if (action === 'punish') {
+                await updateRating(authorId, -2, `Nevhodný obrázek (rozhodnutí moderátora)`);
+                if (interaction.guild) {
+                    await updateRoleStatus(authorId, interaction.guild);
+                }
+                if (messageToModerate) {
+                    await messageToModerate.delete().catch(err => console.log("Nepodařilo se smazat zprávu."));
+                    const warningMsg = await channel.send(`<@${authorId}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`);
+                    setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+                }
+                const punishedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON()).setColor('#FF0000').setTitle('❌ Smazáno a Potrestáno Moderátorem').setDescription(`Obrázek od <@${authorId}> byl smazán a uživatel potrestán.\nModerátor: <@${interaction.user.id}>`);
+                await interaction.update({ embeds: [punishedEmbed], components: [] });
+            }
+        } catch (error) {
+            console.error("Chyba při zpracování interakce tlačítka:", error);
+            await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', flags: MessageFlags.Ephemeral });
+        }
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
     const errorEmbed = new EmbedBuilder().setImage(errorGif);
@@ -347,11 +384,9 @@ client.on('guildBanAdd', async (ban) => {
         if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
     } catch (err) {}
 });
-
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
     if (otherBotPrefixes.some(p => message.content.startsWith(p)) || message.content.startsWith(prefix)) return;
-    
     const wasModerated = await moderateMessage(message);
     if (!wasModerated && message.channel.id === activityChannelId) {
         if (!db) return;
@@ -361,8 +396,7 @@ client.on('messageCreate', async message => {
             { $inc: { count: 1 }, $setOnInsert: { _id: message.author.id } },
             { upsert: true, returnDocument: 'after' }
         );
-        const userMessageCount = result.value ? result.value.count : 1;
-
+        const userMessageCount = result ? result.count : 1;
         if (userMessageCount >= 10) {
             await addActivityRating(message.author.id, "Aktivita");
             await updateRoleStatus(message.author.id, message.guild, message);
@@ -376,4 +410,5 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
+
 client.login(process.env.BOT_TOKEN);
