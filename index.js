@@ -36,6 +36,7 @@ const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
 const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
+const allowedGuildId = '875027587477409862';
 
 // Modely pro obrázkovou moderaci
 const activeImageModel = 'gemini-2.5-pro';
@@ -300,10 +301,10 @@ client.once('clientReady', async () => {
         const commands = [
             new SlashCommandBuilder()
                 .setName('rate')
-                .setDescription('Ohodnotí uživatele (pouze pro adminy).')
+                .setDescription('Ohodnotí uživatele (pouze pro majitele s rolí).')
                 .addUserOption(option => option.setName('uživatel').setDescription('Uživatel, kterého chceš ohodnotit.').setRequired(true))
                 .addNumberOption(option => option.setName('hodnocení').setDescription('Číslo od -10 do 10.').setRequired(true).setMinValue(-10).setMaxValue(10))
-                .setDefaultMemberPermissions(PermissionFlagsBits.Administrator).setDMPermission(false),
+                .setDMPermission(false),
             new SlashCommandBuilder()
                 .setName('score')
                 .setDescription('Zobrazí tvé hodnocení nebo hodnocení jiného uživatele.')
@@ -313,7 +314,6 @@ client.once('clientReady', async () => {
                 .setName('leaderboard')
                 .setDescription('Zobrazí síň slávy - žebříček všech uživatelů.')
                 .setDMPermission(false),
-            // <<< ZMĚNA ZDE: Přidány nové příkazy pro majitele >>>
             new SlashCommandBuilder()
                 .setName('list-servers')
                 .setDescription('Vypíše seznam serverů, kde se bot nachází (pouze pro majitele).')
@@ -346,6 +346,21 @@ client.once('clientReady', async () => {
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) {}
+
+    console.log('Kontroluji servery...');
+    client.guilds.cache.forEach(guild => {
+        if (guild.id !== allowedGuildId) {
+            console.log(`Opouštím nepovolený server: ${guild.name} (ID: ${guild.id})`);
+            guild.leave().catch(err => console.error(`Nepodařilo se opustit server ${guild.name}:`, err));
+        }
+    });
+});
+
+client.on('guildCreate', guild => {
+    if (guild.id !== allowedGuildId) {
+        console.log(`Byl jsem přidán na nepovolený server: ${guild.name} (ID: ${guild.id}). Okamžitě ho opouštím.`);
+        guild.leave().catch(err => console.error(`Nepodařilo se opustit nově přidaný server ${guild.name}:`, err));
+    }
 });
 
 client.on('interactionCreate', async interaction => {
@@ -353,7 +368,7 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral });
         }
-        // ... zbytek logiky pro tlačítka ...
+        // ... button logic ...
         return;
     }
 
@@ -361,51 +376,51 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
     const errorEmbed = new EmbedBuilder().setImage(errorGif);
-
-    // <<< ZMĚNA ZDE: Přidána logika pro nové příkazy >>>
     const ownerId = process.env.OWNER_ID;
 
-    if (commandName === 'list-servers') {
+    if (commandName === 'list-servers' || commandName === 'leave-server') {
         if (interaction.user.id !== ownerId) {
             return interaction.reply({ content: 'Tento příkaz může použít pouze majitel bota.', flags: MessageFlags.Ephemeral });
         }
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-        const guilds = client.guilds.cache.map(guild => `${guild.name} (ID: ${guild.id})`).join('\n');
-        const content = `Bot se nachází na ${client.guilds.cache.size} serverech:\n\n${guilds}`;
         
-        if (content.length > 2000) {
-            const buffer = Buffer.from(content, 'utf-8');
-            return interaction.editReply({ content: 'Seznam serverů je příliš dlouhý, posílám ho jako soubor.', files: [{ attachment: buffer, name: 'server-list.txt' }] });
-        }
-        
-        return interaction.editReply({ content });
-    }
-
-    if (commandName === 'leave-server') {
-        if (interaction.user.id !== ownerId) {
-            return interaction.reply({ content: 'Tento příkaz může použít pouze majitel bota.', flags: MessageFlags.Ephemeral });
-        }
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-        const guildId = interaction.options.getString('id');
-        const guild = client.guilds.cache.get(guildId);
-
-        if (!guild) {
-            return interaction.editReply({ content: `Chyba: Bot není na žádném serveru s ID \`${guildId}\`.` });
+        if (commandName === 'list-servers') {
+            const guilds = client.guilds.cache.map(guild => `${guild.name} (ID: ${guild.id})`).join('\n');
+            const content = `Bot se nachází na ${client.guilds.cache.size} serverech:\n\n${guilds}`;
+            
+            if (content.length > 2000) {
+                const buffer = Buffer.from(content, 'utf-8');
+                return interaction.editReply({ content: 'Seznam serverů je příliš dlouhý, posílám ho jako soubor.', files: [{ attachment: buffer, name: 'server-list.txt' }] });
+            }
+            
+            return interaction.editReply({ content });
         }
 
-        try {
-            await guild.leave();
-            return interaction.editReply({ content: `✅ Úspěšně jsem opustil server **${guild.name}**.` });
-        } catch (err) {
-            console.error(`Nepodařilo se opustit server ${guildId}:`, err);
-            return interaction.editReply({ content: `❌ Nepodařilo se opustit server. Důvod: ${err.message}` });
+        if (commandName === 'leave-server') {
+            const guildId = interaction.options.getString('id');
+            const guild = client.guilds.cache.get(guildId);
+
+            if (!guild) {
+                return interaction.editReply({ content: `Chyba: Bot není na žádném serveru s ID \`${guildId}\`.` });
+            }
+
+            try {
+                await guild.leave();
+                return interaction.editReply({ content: `✅ Úspěšně jsem opustil server **${guild.name}**.` });
+            } catch (err) {
+                console.error(`Nepodařilo se opustit server ${guildId}:`, err);
+                return interaction.editReply({ content: `❌ Nepodařilo se opustit server. Důvod: ${err.message}` });
+            }
         }
     }
 
     if (commandName === 'rate') {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        // <<< ZMĚNA ZDE: Defer je veřejný a kontrola je před ním >>>
+        if (!interaction.member.roles.cache.has(ownerRoleId)) {
+            return interaction.reply({ content: 'K tomuto příkazu má přístup pouze majitel serveru.', flags: MessageFlags.Ephemeral });
+        }
+        await interaction.deferReply(); 
+        
         const user = interaction.options.getUser('uživatel');
         const rating = interaction.options.getNumber('hodnocení');
         if (user.id === interaction.user.id) {
@@ -417,7 +432,7 @@ client.on('interactionCreate', async interaction => {
         addRating(user.id, rating, `Ručně adminem ${interaction.user.tag}`);
         await updateRoleStatus(user.id, interaction.guild);
         const averageRating = calculateAverage(user.id);
-        await interaction.editReply({ content: `**<@${user.id}>** obdržel(a) nové hodnocení! 🔥 Průměr: **\`${averageRating.toFixed(2)} / 10\`**`, flags: [] });
+        await interaction.editReply({ content: `**<@${user.id}>** obdržel(a) nové hodnocení! 🔥 Průměr: **\`${averageRating.toFixed(2)} / 10\`**` });
     }
 
     if (commandName === 'score') {
@@ -429,7 +444,7 @@ client.on('interactionCreate', async interaction => {
             const errorMsg = (targetUser.id === interaction.user.id) ? 'Zatím nemáš žádné hodnocení, kámo! 🤷' : `Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`;
             return interaction.editReply({ content: errorMsg, embeds: [errorEmbed] });
         }
-        const averageRating = calculateAverage(targetUser.id);
+        const averageRating = calculateAverage(user.id);
         const scoreMsg = (targetUser.id === interaction.user.id) ? `🌟 Tvé hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**` : `🌟 Průměrné hodnocení <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
         await interaction.editReply({ content: scoreMsg });
     }
