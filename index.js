@@ -1,6 +1,5 @@
 require('dotenv').config();
 
-// ZDE JE PRVNÍ ZMĚNA -> přidáno 'MessageFlags'
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
@@ -292,7 +291,8 @@ async function moderateMessage(message) {
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
     try {
-        console.log('Započato obnovování aplikačních (/) příkazů.');
+        // <<< ZAČÁTEK ZMĚNY >>>
+        console.log('Započato obnovování GLOBÁLNÍCH aplikačních (/) příkazů.');
         const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
         const commands = [
             new SlashCommandBuilder()
@@ -325,18 +325,19 @@ client.once('clientReady', async () => {
         ].map(command => command.toJSON());
         
         const clientId = process.env.CLIENT_ID;
-        const guildId = process.env.GUILD_ID;
 
-        if (!clientId || !guildId) {
-            throw new Error("CLIENT_ID nebo GUILD_ID není nastaveno v .env souboru!");
+        if (!clientId) {
+            throw new Error("CLIENT_ID není nastaveno v .env souboru!");
         }
 
+        // Změna zpět na globální registraci
         await rest.put(
-            Routes.applicationGuildCommands(clientId, guildId),
+            Routes.applicationCommands(clientId),
             { body: commands },
         );
 
-        console.log('Úspěšně obnoveny aplikační (/) příkazy pro server.');
+        console.log('Úspěšně obnoveny GLOBÁLNÍ aplikační (/) příkazy.');
+        // <<< KONEC ZMĚNY >>>
     } catch (error) {
         console.error('Chyba při registraci (/) příkazů:', error);
     }
@@ -353,7 +354,6 @@ client.once('clientReady', async () => {
 client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            // ZDE JE ZMĚNA
             return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral });
         }
         const [action, originalMessageId, authorId] = interaction.customId.split('-');
@@ -388,7 +388,6 @@ client.on('interactionCreate', async interaction => {
             }
         } catch (error) {
             console.error("Chyba při zpracování interakce:", error);
-            // ZDE JE ZMĚNA
             await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', flags: MessageFlags.Ephemeral });
         }
         return;
@@ -404,11 +403,9 @@ client.on('interactionCreate', async interaction => {
         const rating = interaction.options.getNumber('hodnocení');
 
         if (user.id === interaction.user.id) {
-            // ZDE JE ZMĚNA
             return interaction.reply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂', embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         }
         if (user.bot) {
-            // ZDE JE ZMĚNA
             return interaction.reply({ content: 'Boti jsou mimo hodnocení, kámo.', embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         }
 
@@ -428,7 +425,6 @@ client.on('interactionCreate', async interaction => {
                 ? 'Zatím nemáš žádné hodnocení, kámo! 🤷'
                 : `Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`;
             
-            // ZDE JE ZMĚNA
             return interaction.reply({ content: errorMsg, embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         }
 
@@ -437,7 +433,6 @@ client.on('interactionCreate', async interaction => {
             ? `🌟 Tvé hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`
             : `🌟 Průměrné hodnocení <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
 
-        // ZDE JE ZMĚNA
         await interaction.reply({ content: scoreMsg, flags: MessageFlags.Ephemeral });
     }
 
