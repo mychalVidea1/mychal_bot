@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const sharp = require('sharp');
@@ -18,7 +18,7 @@ const client = new Client({
 });
 
 // ======================= NASTAVENÍ =======================
-const prefix = 'm!';
+const prefix = 'm!'; // Prefix se již nepoužívá pro příkazy, ale může být zachován pro jiné účely.
 const roleId = process.env.ROLE_ID;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
@@ -75,33 +75,26 @@ cleanupOldRatings();
 
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
-
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
     let lastError = null;
-
     const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou škodlivé. Ignoruj běžné lehké nadávky a přátelské pošťuchování. Zasáhni, pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE".\n\nText: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
-
     for (const model of modelsToTry) {
         try {
             console.log(`Zkouším textovou analýzu s modelem: ${model}`);
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-
             const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!candidateText) {
                 console.log(`Gemini textová analýza (${model}) byla zablokována bezpečnostním filtrem.`);
                 lastError = new Error("Blocked by safety filter");
                 continue;
             }
-
             const result = candidateText.trim().toUpperCase();
             console.log(`Gemini textová analýza (${model}) pro text "${text}" byla ÚSPĚŠNÁ: Odpověď - ${result}`);
             return result.includes("ANO");
-
         } catch (error) {
             lastError = error;
             const status = error.response ? error.response.status : null;
-
             if (status === 429 || status === 404 || status === 500) {
                  console.warn(`Model ${model} selhal (stav: ${status}). Přepínám na další model.`);
                  try {
@@ -114,13 +107,11 @@ async function analyzeText(text) {
             }
         }
     }
-
     console.error(`Všechny AI modely pro analýzu textu selhaly. Poslední chyba: ${lastError.message}`);
     const lastStatus = lastError.response ? lastError.response.status : null;
     if (lastStatus === 429) {
         return 'API_LIMIT';
     }
-
     return false;
 }
 
@@ -192,12 +183,10 @@ async function analyzeImage(imageUrl) {
     return 'FILTERED';
 }
 
-// --- FUNKCE S FINÁLNÍ LOGIKOU PRO KONTROLU EMBEDŮ ---
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = await message.guild.members.fetch(message.author.id).catch(() => null);
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
-
     if (aiModerationChannelIds.includes(message.channel.id)) {
         let mediaUrl = null;
         if (message.attachments.size > 0) {
@@ -215,7 +204,6 @@ async function moderateMessage(message) {
             const match = message.content.match(mediaUrlRegex);
             if (match) mediaUrl = match[0];
         }
-
         if (mediaUrl) {
             const imageResult = await analyzeImage(mediaUrl);
             if (imageResult === true) {
@@ -240,30 +228,19 @@ async function moderateMessage(message) {
                 return false;
             }
         }
-
         let textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
-        
-        // <<< ZAČÁTEK ZMĚNY: Logika pro přeposlané zprávy (forward) a embedy
-        // Pokud je obsah prázdný, ale zpráva obsahuje embed (což je případ přeposlání),
-        // vezmeme text z embedu pro analýzu.
         if (textToAnalyze.length === 0 && message.embeds.length > 0) {
             const embed = message.embeds[0];
             let embedText = '';
-
-            // Přeposlaný text je v 'description'
             if (embed.description) {
                 embedText = embed.description;
             } 
-            // Pro jistotu zkontrolujeme i pole, i když to u 'forward' není běžné
             else if (embed.fields && embed.fields.length > 0) {
                 embedText = embed.fields.map(field => field.value).join(' ');
             }
             textToAnalyze = embedText.trim();
         }
-        // <<< KONEC ZMĚNY
-        
         if (textToAnalyze.length === 0) return false;
-
         if (emojiSpamRegex.test(textToAnalyze)) {
             try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, hoď se do klidu, tolik emoji není nutný! 😂`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
             return true;
@@ -313,6 +290,59 @@ async function moderateMessage(message) {
 
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
+
+    // <<< REGISTRACE PŘÍKAZŮ ZAČÍNÁ ZDE >>>
+    try {
+        console.log('Započato obnovování aplikačních (/) příkazů.');
+        const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
+
+        const commands = [
+            new SlashCommandBuilder()
+                .setName('rate')
+                .setDescription('Ohodnotí uživatele (pouze pro adminy).')
+                .addUserOption(option =>
+                    option.setName('uživatel')
+                        .setDescription('Uživatel, kterého chceš ohodnotit.')
+                        .setRequired(true))
+                .addNumberOption(option =>
+                    option.setName('hodnocení')
+                        .setDescription('Číslo od -10 do 10.')
+                        .setRequired(true)
+                        .setMinValue(-10)
+                        .setMaxValue(10))
+                .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+                .setDMPermission(false),
+            new SlashCommandBuilder()
+                .setName('score')
+                .setDescription('Zobrazí tvé hodnocení nebo hodnocení jiného uživatele.')
+                .addUserOption(option =>
+                    option.setName('uživatel')
+                        .setDescription('Uživatel, jehož skóre chceš vidět.')
+                        .setRequired(false))
+                .setDMPermission(false),
+            new SlashCommandBuilder()
+                .setName('leaderboard')
+                .setDescription('Zobrazí síň slávy - žebříček všech uživatelů.')
+                .setDMPermission(false),
+        ].map(command => command.toJSON());
+        
+        // Získání CLIENT_ID z .env souboru
+        const clientId = process.env.CLIENT_ID;
+        if (!clientId) {
+            throw new Error("CLIENT_ID není nastaveno v .env souboru!");
+        }
+
+        await rest.put(
+            Routes.applicationCommands(clientId),
+            { body: commands },
+        );
+
+        console.log('Úspěšně obnoveny aplikační (/) příkazy.');
+    } catch (error) {
+        console.error('Chyba při registraci (/) příkazů:', error);
+    }
+    // <<< REGISTRACE PŘÍKAZŮ KONČÍ ZDE >>>
+
     try {
         const channel = await client.channels.fetch(startupChannelId);
         if (channel) {
@@ -323,45 +353,141 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-        return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
-    }
-    const [action, originalMessageId, authorId] = interaction.customId.split('-');
-    try {
-        const originalMessageUrl = interaction.message.embeds[0].fields[0].value;
-        const urlParts = originalMessageUrl.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
-        if (!urlParts) throw new Error("Nelze najít původní zprávu z URL.");
-        const channelId = urlParts[2];
-        const messageId = urlParts[3];
-        const channel = await client.channels.fetch(channelId);
-        if (!channel) throw new Error("Původní kanál nenalezen.");
-        const messageToModerate = await channel.messages.fetch(messageId).catch(() => null);
-        if (action === 'approve') {
-            const approvedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
-                .setColor('#00FF00').setTitle('✅ Schváleno Moderátorem')
-                .setDescription(`Obrázek od <@${authorId}> byl ponechán.\nSchválil: <@${interaction.user.id}>`);
-            await interaction.update({ embeds: [approvedEmbed], components: [] });
-        } else if (action === 'punish') {
-            addRating(authorId, -2, `Důvod: Nevhodný obrázek (rozhodnutí moderátora)`);
-            if (interaction.guild) {
-                await updateRoleStatus(authorId, interaction.guild);
-            }
-            if (messageToModerate) {
-                await messageToModerate.delete().catch(err => console.log("Nepodařilo se smazat zprávu."));
-                const warningMsg = await channel.send(`<@${authorId}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`);
-                setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
-            }
-            const punishedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
-                .setColor('#FF0000').setTitle('❌ Smazáno a Potrestáno Moderátorem')
-                .setDescription(`Obrázek od <@${authorId}> byl smazán a uživatel potrestán.\nModerátor: <@${interaction.user.id}>`);
-            await interaction.update({ embeds: [punishedEmbed], components: [] });
+    // Zpracování tlačítek (původní kód)
+    if (interaction.isButton()) {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
         }
-    } catch (error) {
-        console.error("Chyba při zpracování interakce:", error);
-        await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', ephemeral: true });
+        const [action, originalMessageId, authorId] = interaction.customId.split('-');
+        try {
+            const originalMessageUrl = interaction.message.embeds[0].fields[0].value;
+            const urlParts = originalMessageUrl.match(/channels\/(\d+)\/(\d+)\/(\d+)/);
+            if (!urlParts) throw new Error("Nelze najít původní zprávu z URL.");
+            const channelId = urlParts[2];
+            const messageId = urlParts[3];
+            const channel = await client.channels.fetch(channelId);
+            if (!channel) throw new Error("Původní kanál nenalezen.");
+            const messageToModerate = await channel.messages.fetch(messageId).catch(() => null);
+            if (action === 'approve') {
+                const approvedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
+                    .setColor('#00FF00').setTitle('✅ Schváleno Moderátorem')
+                    .setDescription(`Obrázek od <@${authorId}> byl ponechán.\nSchválil: <@${interaction.user.id}>`);
+                await interaction.update({ embeds: [approvedEmbed], components: [] });
+            } else if (action === 'punish') {
+                addRating(authorId, -2, `Důvod: Nevhodný obrázek (rozhodnutí moderátora)`);
+                if (interaction.guild) {
+                    await updateRoleStatus(authorId, interaction.guild);
+                }
+                if (messageToModerate) {
+                    await messageToModerate.delete().catch(err => console.log("Nepodařilo se smazat zprávu."));
+                    const warningMsg = await channel.send(`<@${authorId}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo.`);
+                    setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+                }
+                const punishedEmbed = new EmbedBuilder(interaction.message.embeds[0].toJSON())
+                    .setColor('#FF0000').setTitle('❌ Smazáno a Potrestáno Moderátorem')
+                    .setDescription(`Obrázek od <@${authorId}> byl smazán a uživatel potrestán.\nModerátor: <@${interaction.user.id}>`);
+                await interaction.update({ embeds: [punishedEmbed], components: [] });
+            }
+        } catch (error) {
+            console.error("Chyba při zpracování interakce:", error);
+            await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', ephemeral: true });
+        }
+        return;
+    }
+
+    // <<< ZPRACOVÁNÍ SLASH PŘÍKAZŮ ZAČÍNÁ ZDE >>>
+    if (!interaction.isChatInputCommand()) return;
+
+    const { commandName } = interaction;
+    const errorEmbed = new EmbedBuilder().setImage(errorGif);
+
+    if (commandName === 'rate') {
+        const user = interaction.options.getUser('uživatel');
+        const rating = interaction.options.getNumber('hodnocení');
+
+        if (user.id === interaction.user.id) {
+            return interaction.reply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂', embeds: [errorEmbed], ephemeral: true });
+        }
+        if (user.bot) {
+            return interaction.reply({ content: 'Boti jsou mimo hodnocení, kámo.', embeds: [errorEmbed], ephemeral: true });
+        }
+
+        addRating(user.id, rating, `Ručně adminem ${interaction.user.tag}`);
+        await updateRoleStatus(user.id, interaction.guild);
+        const averageRating = calculateAverage(user.id);
+        
+        await interaction.reply({ content: `**<@${user.id}>** obdržel(a) nové hodnocení! 🔥 Průměr: **\`${averageRating.toFixed(2)} / 10\`**` });
+    }
+
+    if (commandName === 'score') {
+        const targetUser = interaction.options.getUser('uživatel') || interaction.user;
+        const userRatings = ratings[targetUser.id] || [];
+
+        if (userRatings.length === 0) {
+            const errorMsg = (targetUser.id === interaction.user.id)
+                ? 'Zatím nemáš žádné hodnocení, kámo! 🤷'
+                : `Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`;
+            
+            return interaction.reply({ content: errorMsg, embeds: [errorEmbed], ephemeral: true });
+        }
+
+        const averageRating = calculateAverage(targetUser.id);
+        const scoreMsg = (targetUser.id === interaction.user.id)
+            ? `🌟 Tvé hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`
+            : `🌟 Průměrné hodnocení <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
+
+        await interaction.reply({ content: scoreMsg, ephemeral: true });
+    }
+
+    if (commandName === 'leaderboard') {
+        await interaction.deferReply(); // Dáme Discordu vědět, že odpověď může trvat déle
+
+        const userIds = Object.keys(ratings);
+        if (userIds.length === 0) {
+            return interaction.editReply({ content: 'Síň slávy je prázdná!', embeds: [new EmbedBuilder().setImage(errorGif)] });
+        }
+        
+        await interaction.guild.members.fetch();
+        
+        userIds.sort((a, b) => calculateAverage(b) - calculateAverage(a));
+        
+        const scoreEmbed = new EmbedBuilder()
+            .setColor('#5865F2')
+            .setTitle('✨🏆 SÍŇ SLÁVY 🏆✨')
+            .setDescription('Udržuj si skóre nad **9.0** a získáš přístup do 👑 | VIP kanálu pro volání na streamech!\n\n')
+            .setTimestamp()
+            .setFooter({ text: 'Vaše chování ovlivňuje vaše skóre. Buďte v pohodě! 😉' });
+
+        let leaderboardString = '';
+        let rank = 1;
+        for (const userId of userIds) {
+            if (rank > 25) break; 
+            const averageRating = calculateAverage(userId);
+            if (!ratings[userId] || ratings[userId].length === 0) continue;
+
+            const member = interaction.guild.members.cache.get(userId);
+            if (!member) continue; 
+
+            let roleIndicator = (member.roles.cache.has(roleId)) ? ' 👑' : '';
+            let rankDisplay;
+            if (rank === 1) rankDisplay = '🥇';
+            else if (rank === 2) rankDisplay = '🥈';
+            else if (rank === 3) rankDisplay = '🥉';
+            else rankDisplay = `**${rank}.**`;
+
+            leaderboardString += `${rankDisplay} <@${userId}> ⮞ \` ${averageRating.toFixed(2)} / 10 \` ${roleIndicator}\n`;
+            rank++;
+        }
+
+        if (leaderboardString === '') {
+             return interaction.editReply({ content: 'V síni slávy zatím nikdo není, kdo by stál za řeč!', embeds: [new EmbedBuilder().setImage(errorGif)] });
+        }
+
+        scoreEmbed.setDescription(scoreEmbed.data.description + leaderboardString);
+        await interaction.editReply({ embeds: [scoreEmbed] });
     }
 });
+
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
@@ -386,111 +512,25 @@ client.on('guildBanAdd', async (ban) => {
         if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
     } catch (err) {}
 });
-
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
-    if (otherBotPrefixes.some(p => message.content.startsWith(p))) return;
-    
-    if (!message.content.startsWith(prefix)) {
-        const wasModerated = await moderateMessage(message);
-        if (!wasModerated && message.channel.id === activityChannelId) {
-            if (!messageCounts[message.author.id]) messageCounts[message.author.id] = 0;
-            messageCounts[message.author.id]++;
-            if (messageCounts[message.author.id] >= 10) {
-                if (!ratings[message.author.id] || ratings[message.author.id].length === 0) {
-                    addRating(message.author.id, 5, "Důvod: První odměna za aktivitu");
-                } else {
-                    addRating(message.author.id, 10, "Důvod: Aktivita");
-                }
-                await updateRoleStatus(message.author.id, message.guild, message);
-                messageCounts[message.author.id] = 0;
+    // Ignorujeme zprávy, které začínají prefixy jiných botů, a také náš starý prefix.
+    if (otherBotPrefixes.some(p => message.content.startsWith(p)) || message.content.startsWith(prefix)) return; 
+    // Zbytek logiky pro moderaci a počítání zpráv zůstává stejný
+    const wasModerated = await moderateMessage(message);
+    if (!wasModerated && message.channel.id === activityChannelId) {
+        if (!messageCounts[message.author.id]) messageCounts[message.author.id] = 0;
+        messageCounts[message.author.id]++;
+        if (messageCounts[message.author.id] >= 10) {
+            if (!ratings[message.author.id] || ratings[message.author.id].length === 0) {
+                addRating(message.author.id, 5, "Důvod: První odměna za aktivitu");
+            } else {
+                addRating(message.author.id, 10, "Důvod: Aktivita");
             }
-            saveMessageCounts();
+            await updateRoleStatus(message.author.id, message.guild, message);
+            messageCounts[message.author.id] = 0;
         }
-        return; 
-    }
-    const args = message.content.slice(prefix.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
-    
-    if (command === 'rate') {
-        try { await message.delete(); } catch (err) {}
-        const errorEmbed = new EmbedBuilder().setImage(errorGif);
-        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            const reply = await message.channel.send({ content: 'Na tohle nemáš oprávnění, kámo. ✋', embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 10000);
-            return;
-        }
-        const user = message.mentions.users.first();
-        if (!user) {
-            const reply = await message.channel.send({ content: 'Bruh, koho mám jako hodnotit? Musíš někoho @označit! 🤔', embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 15000);
-            return;
-        }
-        if (user.id === message.author.id) {
-            const reply = await message.channel.send({ content: 'Snažíš se sám sobě dát 10/10, co? Hezký pokus, ale zastavil jsem tě v čas. 😂', embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 15000);
-            return;
-        }
-        const rating = parseFloat(args[1]); 
-        if (isNaN(rating) || rating < -10 || rating > 10) {
-            const reply = await message.channel.send({ content: 'Stupnice je 1 až 10. 🔢', embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 15000);
-            return;
-        }
-        addRating(user.id, rating, `Ručně adminem ${message.author.tag}`);
-        await updateRoleStatus(user.id, message.guild, message);
-        const averageRating = calculateAverage(user.id);
-        const reply = await message.channel.send(`**<@${user.id}>** obdržel(a) nové hodnocení! 🔥 Průměr: **\`${averageRating.toFixed(2)} / 10\`**`);
-        setTimeout(() => reply.delete().catch(() => {}), 20000);
-    }
-
-    if (command === 'score') {
-        if (message.mentions.everyone) {
-            try { await message.delete(); } catch (err) {}
-            const userIds = Object.keys(ratings);
-            if (userIds.length === 0) return message.channel.send({ content: 'Síň slávy je prázdná!', embeds: [new EmbedBuilder().setImage(errorGif)] });
-            userIds.sort((a, b) => calculateAverage(b) - calculateAverage(a));
-            const scoreEmbed = new EmbedBuilder().setColor('#5865F2').setTitle('✨🏆 SÍŇ SLÁVY 🏆✨').setDescription('Udržuj si skóre nad **9.0** a získáš přístup do 👑 | VIP kanálu pro volání na streamech!\n\n').setTimestamp().setFooter({ text: 'Vaše chování ovlivňuje vaše skóre. Buďte v pohodě! 😉' });
-            let leaderboardString = '';
-            let rank = 1;
-            for (const userId of userIds) {
-                const averageRating = calculateAverage(userId);
-                if (!ratings[userId] || ratings[userId].length === 0) continue;
-                let roleIndicator = '';
-                try {
-                    const member = await message.guild.members.fetch(userId);
-                    if (member && member.roles.cache.has(roleId)) roleIndicator = ' 👑';
-                } catch (error) {}
-                let rankDisplay;
-                if (rank === 1) rankDisplay = '🥇'; else if (rank === 2) rankDisplay = '🥈'; else if (rank === 3) rankDisplay = '🥉'; else rankDisplay = `**${rank}.**`;
-                leaderboardString += `${rankDisplay} <@${userId}> ⮞ \` ${averageRating.toFixed(2)} / 10 \` ${roleIndicator}\n`;
-                rank++;
-            }
-            scoreEmbed.setDescription(scoreEmbed.data.description + leaderboardString);
-            return message.channel.send({ embeds: [scoreEmbed] });
-        }
-        try { await message.delete(); } catch (err) {}
-        const errorEmbed = new EmbedBuilder().setImage(errorGif);
-        const targetUser = message.mentions.users.first() || message.author;
-        const userRatings = ratings[targetUser.id] || [];
-        if (userRatings.length === 0) {
-            let errorMsg;
-            if (targetUser.id === message.author.id) errorMsg = 'Zatím nemáš žádné hodnocení, kámo! 🤷';
-            else errorMsg = `Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`;
-            
-            const reply = await message.channel.send({ content: errorMsg, embeds: [errorEmbed] });
-            setTimeout(() => reply.delete().catch(() => {}), 10000);
-            return;
-        }
-        const averageRating = calculateAverage(targetUser.id);
-        let scoreMsg;
-        if (targetUser.id === message.author.id) {
-            scoreMsg = `🌟 <@${targetUser.id}> Tvé hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`;
-        } else {
-            scoreMsg = `🌟 Průměrné hodnocení <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
-        }
-        const reply = await message.channel.send(scoreMsg);
-        setTimeout(() => reply.delete().catch(() => {}), 10000);
+        saveMessageCounts();
     }
 });
 client.on('messageUpdate', async (oldMessage, newMessage) => {
