@@ -384,9 +384,11 @@ client.on('guildBanAdd', async (ban) => {
         if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`);
     } catch (err) {}
 });
+
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
     if (otherBotPrefixes.some(p => message.content.startsWith(p)) || message.content.startsWith(prefix)) return;
+    
     const wasModerated = await moderateMessage(message);
     if (!wasModerated && message.channel.id === activityChannelId) {
         if (!db) return;
@@ -397,6 +399,7 @@ client.on('messageCreate', async message => {
             { upsert: true, returnDocument: 'after' }
         );
         const userMessageCount = result ? result.count : 1;
+
         if (userMessageCount >= 10) {
             await addActivityRating(message.author.id, "Aktivita");
             await updateRoleStatus(message.author.id, message.guild, message);
@@ -404,11 +407,13 @@ client.on('messageCreate', async message => {
         }
     }
 });
+
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) { try { await newMessage.fetch(); } catch { return; } }
     if (newMessage.author.bot || !newMessage.guild) return;
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
+
 
 client.login(process.env.BOT_TOKEN);
