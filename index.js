@@ -1,6 +1,7 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+// ZDE JE PRVNÍ ZMĚNA -> přidáno 'MessageFlags'
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const sharp = require('sharp');
@@ -18,7 +19,7 @@ const client = new Client({
 });
 
 // ======================= NASTAVENÍ =======================
-const prefix = 'm!'; // Prefix se již nepoužívá pro příkazy, ale může být zachován pro jiné účely.
+const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const errorGif = 'https://tenor.com/view/womp-womp-gif-9875106689398845891';
@@ -290,12 +291,9 @@ async function moderateMessage(message) {
 
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
-
-    // <<< REGISTRACE PŘÍKAZŮ ZAČÍNÁ ZDE >>>
     try {
         console.log('Započato obnovování aplikačních (/) příkazů.');
         const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
-
         const commands = [
             new SlashCommandBuilder()
                 .setName('rate')
@@ -326,22 +324,22 @@ client.once('clientReady', async () => {
                 .setDMPermission(false),
         ].map(command => command.toJSON());
         
-        // Získání CLIENT_ID z .env souboru
         const clientId = process.env.CLIENT_ID;
-        if (!clientId) {
-            throw new Error("CLIENT_ID není nastaveno v .env souboru!");
+        const guildId = process.env.GUILD_ID;
+
+        if (!clientId || !guildId) {
+            throw new Error("CLIENT_ID nebo GUILD_ID není nastaveno v .env souboru!");
         }
 
         await rest.put(
-            Routes.applicationCommands(clientId),
+            Routes.applicationGuildCommands(clientId, guildId),
             { body: commands },
         );
 
-        console.log('Úspěšně obnoveny aplikační (/) příkazy.');
+        console.log('Úspěšně obnoveny aplikační (/) příkazy pro server.');
     } catch (error) {
         console.error('Chyba při registraci (/) příkazů:', error);
     }
-    // <<< REGISTRACE PŘÍKAZŮ KONČÍ ZDE >>>
 
     try {
         const channel = await client.channels.fetch(startupChannelId);
@@ -353,10 +351,10 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-    // Zpracování tlačítek (původní kód)
     if (interaction.isButton()) {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
+            // ZDE JE ZMĚNA
+            return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral });
         }
         const [action, originalMessageId, authorId] = interaction.customId.split('-');
         try {
@@ -390,12 +388,12 @@ client.on('interactionCreate', async interaction => {
             }
         } catch (error) {
             console.error("Chyba při zpracování interakce:", error);
-            await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', ephemeral: true });
+            // ZDE JE ZMĚNA
+            await interaction.reply({ content: 'Došlo k chybě. Zkus to prosím ručně.', flags: MessageFlags.Ephemeral });
         }
         return;
     }
 
-    // <<< ZPRACOVÁNÍ SLASH PŘÍKAZŮ ZAČÍNÁ ZDE >>>
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
@@ -406,10 +404,12 @@ client.on('interactionCreate', async interaction => {
         const rating = interaction.options.getNumber('hodnocení');
 
         if (user.id === interaction.user.id) {
-            return interaction.reply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂', embeds: [errorEmbed], ephemeral: true });
+            // ZDE JE ZMĚNA
+            return interaction.reply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂', embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         }
         if (user.bot) {
-            return interaction.reply({ content: 'Boti jsou mimo hodnocení, kámo.', embeds: [errorEmbed], ephemeral: true });
+            // ZDE JE ZMĚNA
+            return interaction.reply({ content: 'Boti jsou mimo hodnocení, kámo.', embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         }
 
         addRating(user.id, rating, `Ručně adminem ${interaction.user.tag}`);
@@ -428,7 +428,8 @@ client.on('interactionCreate', async interaction => {
                 ? 'Zatím nemáš žádné hodnocení, kámo! 🤷'
                 : `Uživatel <@${targetUser.id}> je zatím nepopsaný list. 📜`;
             
-            return interaction.reply({ content: errorMsg, embeds: [errorEmbed], ephemeral: true });
+            // ZDE JE ZMĚNA
+            return interaction.reply({ content: errorMsg, embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         }
 
         const averageRating = calculateAverage(targetUser.id);
@@ -436,53 +437,44 @@ client.on('interactionCreate', async interaction => {
             ? `🌟 Tvé hodnocení je: **\`${averageRating.toFixed(2)} / 10\`**`
             : `🌟 Průměrné hodnocení <@${targetUser.id}> je: **\`${averageRating.toFixed(2)} / 10\`**`;
 
-        await interaction.reply({ content: scoreMsg, ephemeral: true });
+        // ZDE JE ZMĚNA
+        await interaction.reply({ content: scoreMsg, flags: MessageFlags.Ephemeral });
     }
 
     if (commandName === 'leaderboard') {
-        await interaction.deferReply(); // Dáme Discordu vědět, že odpověď může trvat déle
-
+        await interaction.deferReply();
         const userIds = Object.keys(ratings);
         if (userIds.length === 0) {
             return interaction.editReply({ content: 'Síň slávy je prázdná!', embeds: [new EmbedBuilder().setImage(errorGif)] });
         }
-        
         await interaction.guild.members.fetch();
-        
         userIds.sort((a, b) => calculateAverage(b) - calculateAverage(a));
-        
         const scoreEmbed = new EmbedBuilder()
             .setColor('#5865F2')
             .setTitle('✨🏆 SÍŇ SLÁVY 🏆✨')
             .setDescription('Udržuj si skóre nad **9.0** a získáš přístup do 👑 | VIP kanálu pro volání na streamech!\n\n')
             .setTimestamp()
             .setFooter({ text: 'Vaše chování ovlivňuje vaše skóre. Buďte v pohodě! 😉' });
-
         let leaderboardString = '';
         let rank = 1;
         for (const userId of userIds) {
             if (rank > 25) break; 
             const averageRating = calculateAverage(userId);
             if (!ratings[userId] || ratings[userId].length === 0) continue;
-
             const member = interaction.guild.members.cache.get(userId);
             if (!member) continue; 
-
             let roleIndicator = (member.roles.cache.has(roleId)) ? ' 👑' : '';
             let rankDisplay;
             if (rank === 1) rankDisplay = '🥇';
             else if (rank === 2) rankDisplay = '🥈';
             else if (rank === 3) rankDisplay = '🥉';
             else rankDisplay = `**${rank}.**`;
-
             leaderboardString += `${rankDisplay} <@${userId}> ⮞ \` ${averageRating.toFixed(2)} / 10 \` ${roleIndicator}\n`;
             rank++;
         }
-
         if (leaderboardString === '') {
              return interaction.editReply({ content: 'V síni slávy zatím nikdo není, kdo by stál za řeč!', embeds: [new EmbedBuilder().setImage(errorGif)] });
         }
-
         scoreEmbed.setDescription(scoreEmbed.data.description + leaderboardString);
         await interaction.editReply({ embeds: [scoreEmbed] });
     }
@@ -502,7 +494,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
         } catch (err) {}
     }
 });
-
 client.on('guildBanAdd', async (ban) => {
     ratings[ban.user.id] = [0];
     saveRatings();
@@ -514,9 +505,8 @@ client.on('guildBanAdd', async (ban) => {
 });
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
-    // Ignorujeme zprávy, které začínají prefixy jiných botů, a také náš starý prefix.
-    if (otherBotPrefixes.some(p => message.content.startsWith(p)) || message.content.startsWith(prefix)) return; 
-    // Zbytek logiky pro moderaci a počítání zpráv zůstává stejný
+    if (otherBotPrefixes.some(p => message.content.startsWith(p)) || message.content.startsWith(prefix)) return;
+    
     const wasModerated = await moderateMessage(message);
     if (!wasModerated && message.channel.id === activityChannelId) {
         if (!messageCounts[message.author.id]) messageCounts[message.author.id] = 0;
