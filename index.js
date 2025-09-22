@@ -115,22 +115,16 @@ async function updateRoleStatus(userId, guild, sourceMessage = null) {
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
-    let lastError = null;
     const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou škodlivé. Ignoruj běžné lehké nadávky a přátelské pošťuchování. Zasáhni, pokud zpráva překročí hranici běžného "trash talku" a stane se z ní nenávistný projev, vyhrožování nebo šikana. Je tato zpráva taková? Odpověz jen "ANO" nebo "NE".\n\nText: "${text}"`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     for (const model of modelsToTry) {
         try {
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
             const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!candidateText) { lastError = new Error("Blocked by safety filter"); continue; }
+            if (!candidateText) continue;
             const result = candidateText.trim().toUpperCase();
             return result.includes("ANO");
-        } catch (error) {
-            lastError = error;
-            const status = error.response ? error.response.status : null;
-            if (status === 429 || status === 404 || status === 500) { continue; } 
-            else { break; }
-        }
+        } catch (error) { continue; }
     }
     return false;
 }
@@ -138,7 +132,6 @@ async function analyzeText(text) {
 async function analyzeImage(imageUrl) {
     if (!geminiApiKey) return false;
     const modelsToTry = [activeImageModel, firstFallbackImageModel, secondFallbackImageModel];
-    let lastError = null;
     let imageBuffer, mimeType;
     try {
         imageBuffer = (await axios.get(imageUrl, { responseType: 'arraybuffer' })).data;
@@ -149,20 +142,14 @@ async function analyzeImage(imageUrl) {
             const middleFrameIndex = Math.floor(frames.length / 2);
             const frameStream = frames[middleFrameIndex].getImage();
             const chunks = [];
-            await new Promise((resolve, reject) => {
-                frameStream.on('data', chunk => chunks.push(chunk));
-                frameStream.on('error', reject);
-                frameStream.on('end', resolve);
-            });
+            await new Promise((resolve, reject) => { frameStream.on('data', chunk => chunks.push(chunk)); frameStream.on('error', reject); frameStream.on('end', resolve); });
             imageBuffer = Buffer.concat(chunks);
             mimeType = 'image/png';
         }
         if (mimeType.startsWith('image/')) {
             imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
-        } else {
-            return false;
-        }
-    } catch (preprocessingError) { console.error(`Chyba při předzpracování obrázku ${imageUrl}:`, preprocessingError.message); return 'FILTERED'; }
+        } else { return false; }
+    } catch (preprocessingError) { return 'FILTERED'; }
     const base64Image = imageBuffer.toString('base64');
     const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je nevhodný) nebo "NE" (pokud je v pořádku).`;
     const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
@@ -172,14 +159,7 @@ async function analyzeImage(imageUrl) {
             if (!response.data.candidates || response.data.candidates.length === 0) { return 'FILTERED'; }
             const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
             return result.includes("ANO");
-        } catch (error) {
-            lastError = error;
-            const status = error.response ? error.response.status : null;
-            if (status === 429 || status === 404 || status === 500 || status === 503) {
-                if (model === activeImageModel && !hasSwitchedToFirstFallback) { hasSwitchedToFirstFallback = true; } 
-                else if (model === firstFallbackImageModel && !hasSwitchedToSecondFallback) { hasSwitchedToSecondFallback = true; }
-            } else { break; }
-        }
+        } catch (error) { continue; }
     }
     return 'FILTERED';
 }
