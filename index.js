@@ -432,7 +432,7 @@ client.on('messageCreate', async message => {
         if (!messageCounts[message.author.id]) messageCounts[message.author.id] = 0;
         messageCounts[message.author.id]++;
         if (messageCounts[message.author.id] >= 10) {
-            updateRating(message.author.id, 0.02, "Důvod: Aktivita");
+            updateRating(message.author.id, 0.2, "Důvod: Aktivita");
             await updateRoleStatus(message.author.id, message.guild, message);
             messageCounts[message.author.id] = 0;
         }
