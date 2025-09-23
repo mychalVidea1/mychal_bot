@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags, Collection } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const sharp = require('sharp');
@@ -54,6 +54,12 @@ const level1Regex = new RegExp(`\\b(${level1Words.join('|')})\\b`, 'i');
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 
+// ===== ANTI-SPAM =====
+const userMessageHistory = new Collection();
+const SPAM_MESSAGE_COUNT = 7;
+const SPAM_MAX_MESSAGE_LENGTH = 3;
+// =====================
+
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
 const messageCountsFilePath = `${dataDirectory}/message_counts.json`;
@@ -71,6 +77,18 @@ function updateRating(userId, points, reason = "") { const currentRating = getUs
 
 async function updateRoleStatus(userId, guild, sourceMessage = null) { try { if (!guild.members.me.permissions.has(PermissionsBitField.Flags.ManageRoles)) return; const member = await guild.members.fetch(userId).catch(() => null); const role = guild.roles.cache.get(roleId); if (!member || !role) return; const userRating = getUserRating(userId); const hasRole = member.roles.cache.has(roleId); if (userRating > 9 && !hasRole) { await member.roles.add(role); const messageContent = `🎉 Gratulace, <@${member.id}>! Tvé skóre tě katapultovalo mezi elitu a získal(a) jsi roli **${role.name}**! 🚀`; if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) { sourceMessage.reply(messageContent).catch(() => {}); } else { const channel = await client.channels.fetch(logChannelId).catch(() => null); if (channel) channel.send(messageContent).catch(() => {}); } } else if (userRating <= 9 && hasRole) { await member.roles.remove(role); const messageContent = `📉 Pozor, <@${member.id}>! Tvé hodnocení kleslo a přišel(a) jsi o roli **${role.name}**. Zaber!`; if (sourceMessage && sourceMessage.channel && !sourceMessage.deleted) { sourceMessage.reply(messageContent).catch(() => {}); } else { const channel = await client.channels.fetch(logChannelId).catch(() => null); if (channel) channel.send(messageContent).catch(() => {}); } } } catch (error) { console.error(`Chyba při aktualizaci role pro ${userId}:`, error); } }
 
+// ===== POMOCNÁ FUNKCE PRO TIMEOUTY =====
+async function applyTimeout(member, durationInMs, reason) {
+    if (!member) return;
+    try {
+        await member.timeout(durationInMs, reason);
+        console.log(`Uživatel ${member.user.tag} dostal timeout na ${durationInMs / 1000}s. Důvod: ${reason}`);
+    } catch (error) {
+        console.error(`Nepodařilo se udělit timeout uživateli ${member.user.tag} (možná nemám oprávnění?):`, error.message);
+    }
+}
+// ======================================
+
 async function analyzeText(text) {
     if (!geminiApiKey) return false;
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
@@ -79,27 +97,18 @@ async function analyzeText(text) {
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
     for (const model of modelsToTry) {
         try {
-            console.log(`Zkouším textovou analýzu s modelem: ${model}`);
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
             const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!candidateText) {
-                console.log(`Gemini textová analýza (${model}) byla zablokována bezpečnostním filtrem.`);
-                lastError = new Error("Blocked by safety filter");
-                continue;
-            }
+            if (!candidateText) { lastError = new Error("Blocked by safety filter"); continue; }
             const result = candidateText.trim().toUpperCase();
-            console.log(`Gemini textová analýza (${model}) pro text "${text}" byla ÚSPĚŠNÁ: Odpověď - ${result}`);
             return result.includes("ANO");
         } catch (error) {
             lastError = error;
             const status = error.response ? error.response.status : null;
-            if (status === 429 || status === 404 || status === 500) {
-                 console.warn(`Model ${model} selhal (stav: ${status}). Přepínám na další model.`);
-                 try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟡 **VAROVÁNÍ:** AI model pro text (${model}) selhal. Automaticky zkouším další v pořadí.`); } catch (err) {}
-            } else { console.error(`Gemini textová analýza (${model}) selhala s neočekávanou chybou pro text "${text}". Důvod: ${error.message}`); break; }
+            if (status === 429 || status === 404 || status === 500) { continue; } 
+            else { break; }
         }
     }
-    console.error(`Všechny AI modely pro analýzu textu selhaly. Poslední chyba: ${lastError.message}`);
     const lastStatus = lastError.response ? lastError.response.status : null;
     if (lastStatus === 429) { return 'API_LIMIT'; }
     return false;
@@ -124,38 +133,32 @@ async function analyzeImage(imageUrl) {
             mimeType = 'image/png';
         }
         if (mimeType.startsWith('image/')) { imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer(); } else { return false; }
-    } catch (preprocessingError) { console.error(`Chyba při předzpracování obrázku ${imageUrl}:`, preprocessingError.message); return 'FILTERED'; }
+    } catch (preprocessingError) { return 'FILTERED'; }
     const base64Image = imageBuffer.toString('base64');
     const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je nevhodný) nebo "NE" (pokud je v pořádku).`;
     const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
     for (const model of modelsToTry) {
         try {
-            console.log(`Zkouším analýzu obrázku s modelem: ${model}`);
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-            if (!response.data.candidates || response.data.candidates.length === 0) { console.log(`Gemini obrázková analýza (${model}) byla zablokována bezpečnostním filtrem pro obrázek: ${imageUrl}`); return 'FILTERED'; }
+            if (!response.data.candidates || response.data.candidates.length === 0) { return 'FILTERED'; }
             const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
-            console.log(`Gemini analýza pro "${imageUrl}" (${model}) byla ÚSPĚŠNÁ: Odpověď - ${result}`);
             return result.includes("ANO");
         } catch (error) {
             lastError = error;
             const status = error.response ? error.response.status : null;
-            if (status === 429 || status === 404 || status === 500 || status === 503) {
-                if (model === activeImageModel && !hasSwitchedToFirstFallback) { console.warn(`Model ${model} selhal (stav: ${status}). Přepínám na první zálohu: ${firstFallbackImageModel}`); hasSwitchedToFirstFallback = true; try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🟠 **VAROVÁNÍ:** Primární AI model pro obrázky selhal. Automaticky přepínám na první záložní model.`); } catch (err) {} }
-                else if (model === firstFallbackImageModel && !hasSwitchedToSecondFallback) { console.warn(`Model ${model} selhal (stav: ${status}). Přepínám na druhou (poslední) zálohu: ${secondFallbackImageModel}`); hasSwitchedToSecondFallback = true; try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`🔴 **KRITICKÉ VAROVÁNÍ:** Záložní AI model pro obrázky selhal. Přepínám na poslední záchrannou možnost (${secondFallbackImageModel}).`); } catch (err) {} }
-            } else { console.error(`Gemini obrázková analýza (${model}) selhala s neočekávanou chybou pro ${imageUrl}. Důvod: ${error.message}`); break; }
+            if (status === 429 || status === 404 || status === 500 || status === 503) { continue; } 
+            else { break; }
         }
     }
-    console.error(`Všechny AI modely pro analýzu obrázků selhaly pro ${imageUrl}. Poslední chyba: ${lastError.message}`);
     return 'FILTERED';
 }
 
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
-    const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+    const member = message.member;
     if (!member || member.roles.cache.has(ownerRoleId)) return false;
     if (!aiModerationChannelIds.includes(message.channel.id)) return false;
 
-    // Část 1: Moderace obrázků a médií
     let mediaUrl = null;
     if (message.attachments.size > 0) { const attachment = message.attachments.first(); if (attachment.size < MAX_FILE_SIZE_BYTES && (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'))) { mediaUrl = attachment.url; } }
     if (!mediaUrl && message.embeds.length > 0) { const embed = message.embeds[0]; if (embed.image) mediaUrl = embed.image.url; else if (embed.thumbnail) mediaUrl = embed.thumbnail.url; }
@@ -166,8 +169,9 @@ async function moderateMessage(message) {
         const imageResult = await analyzeImage(cleanMediaUrl);
         if (imageResult === true) {
             updateRating(message.author.id, -1.5, `Důvod: Nevhodný obrázek/GIF (detekováno AI)`);
+            await applyTimeout(member, 60 * 1000, 'Nahrání nevhodného obrázku');
             await updateRoleStatus(message.author.id, message.guild, message);
-            try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek/GIF byl vyhodnocen jako nevhodný a tvé hodnocení bylo sníženo o **1.5 bodu**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
+            try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, tvůj obrázek byl nevhodný. Bylo ti sníženo hodnocení a dostal jsi **timeout na 60 sekund**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 15000); } catch (err) {}
             return true;
         } else if (imageResult === 'FILTERED') {
             const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
@@ -179,26 +183,27 @@ async function moderateMessage(message) {
         }
     }
 
-    // Část 2: Moderace textu
     let textToAnalyze = message.content.replace(mediaUrlRegex, '').trim();
     if (textToAnalyze.length === 0 && message.embeds.length > 0) { const embed = message.embeds[0]; if (embed.description) textToAnalyze = embed.description; }
     if (textToAnalyze.length === 0) return false;
 
     if (level3Regex.test(textToAnalyze)) {
         ratings[message.author.id] = 0.0; saveRatings();
+        await applyTimeout(member, 60 * 60 * 1000, 'Použití přísně zakázaného slova');
         await updateRoleStatus(message.author.id, message.guild, message);
-        try { await message.delete(); const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil přísně zakázané slovo. Tvoje hodnocení bylo **resetováno na 0**!`); setTimeout(() => warningMsg.delete().catch(() => {}), 20000); } catch (err) {}
+        try { await message.delete(); const warningMsg = await message.channel.send(`Uživatel <@${message.author.id}> použil přísně zakázané slovo. Hodnocení bylo **resetováno na 0** a byl udělen **timeout na 1 hodinu**!`); setTimeout(() => warningMsg.delete().catch(() => {}), 20000); } catch (err) {}
         return true;
     }
     if (level2Regex.test(textToAnalyze)) {
         updateRating(message.author.id, -2, "Důvod: Hrubá urážka");
+        await applyTimeout(member, 5 * 60 * 1000, 'Použití hrubé urážky');
         await updateRoleStatus(message.author.id, message.guild, message);
-        try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, za toto chování ti byl snížen rating o **2 body**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
+        try { await message.delete(); const warningMsg = await message.channel.send(`<@${message.author.id}>, za toto chování ti byl snížen rating o **2 body** a byl udělen **timeout na 5 minut**.`); setTimeout(() => warningMsg.delete().catch(() => {}), 10000); } catch (err) {}
         return true;
     }
     if (level1Regex.test(textToAnalyze)) {
         try { const warningReply = await message.reply(`Slovník prosím. 🤫`); setTimeout(() => warningReply.delete().catch(() => {}), 10000); } catch (err) {}
-        return true; // Return true to prevent activity points
+        return true; 
     }
     
     if (emojiSpamRegex.test(textToAnalyze)) {
@@ -229,6 +234,38 @@ async function moderateMessage(message) {
     }
     return false;
 }
+
+// ===== ANTI-SPAM FUNKCE =====
+async function checkRepetitiveSpam(message) {
+    if (!message.guild || message.author.bot) return false;
+    if (!userMessageHistory.has(message.author.id)) {
+        userMessageHistory.set(message.author.id, new Collection());
+    }
+    const userHistory = userMessageHistory.get(message.author.id);
+    userHistory.set(message.id, { content: message.content });
+
+    if (userHistory.size > SPAM_MESSAGE_COUNT) {
+        userHistory.delete(userHistory.firstKey());
+    }
+    if (userHistory.size < SPAM_MESSAGE_COUNT) return false;
+
+    const firstMessageContent = userHistory.first().content;
+    const isSpam = userHistory.every(msg => msg.content === firstMessageContent && msg.content.length <= SPAM_MAX_MESSAGE_LENGTH);
+
+    if (isSpam) {
+        const messagesToDelete = userHistory.keyArray();
+        userMessageHistory.delete(message.author.id); // Vyčistit hned, aby se předešlo duplicitní detekci
+        try {
+            await message.channel.bulkDelete(messagesToDelete);
+            await applyTimeout(message.member, 60 * 1000, 'Spamování krátkých zpráv');
+            const warningMsg = await message.channel.send(`<@${message.author.id}>, přestaň spamovat! Dostal jsi **timeout na 60 sekund**.`);
+            setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+        } catch (err) { console.error("Chyba při mazání spamu:", err); }
+        return true;
+    }
+    return false;
+}
+// =============================
 
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
@@ -273,7 +310,10 @@ client.on('interactionCreate', async interaction => {
             if (logMessage) { const embed = new EmbedBuilder(logMessage.embeds[0].data).setColor('#00FF00').setTitle('✅ Obrázek Schválen').setDescription(`Obrázek od <@${authorId}> byl schválen moderátorem <@${interaction.user.id}>.`).setFields([]); await logMessage.edit({ embeds: [embed], components: [] }); }
             return interaction.editReply({ content: 'Obrázek byl schválen.' });
         } else if (action === 'punish') {
+            const memberToPunish = await interaction.guild.members.fetch(authorId).catch(() => null);
             updateRating(authorId, -2.5, 'Důvod: Nevhodný obrázek (zamítnuto moderátorem)');
+            await applyTimeout(memberToPunish, 60 * 1000, 'Nahrání nevhodného obrázku (manuální trest)');
+
             if (logMessage && logMessage.embeds[0] && logMessage.embeds[0].fields[0]) {
                 const messageUrl = logMessage.embeds[0].fields[0].value;
                 const urlParts = messageUrl.match(/channels\/\d+\/(\d+)\/(\d+)/);
@@ -284,8 +324,8 @@ client.on('interactionCreate', async interaction => {
                 }
             }
             await updateRoleStatus(authorId, interaction.guild);
-            if (logMessage) { const embed = new EmbedBuilder(logMessage.embeds[0].data).setColor('#FF0000').setTitle('❌ Obrázek Zamítnut a Potrestán').setDescription(`Uživatel <@${authorId}> byl potrestán moderátorem <@${interaction.user.id}> za nevhodný obrázek.\nHodnocení sníženo o **2.5** bodu.`).setFields([]); await logMessage.edit({ embeds: [embed], components: [] }); }
-            return interaction.editReply({ content: `Uživatel byl potrestán a jeho hodnocení sníženo o 2.5 bodu.` });
+            if (logMessage) { const embed = new EmbedBuilder(logMessage.embeds[0].data).setColor('#FF0000').setTitle('❌ Obrázek Zamítnut a Potrestán').setDescription(`Uživatel <@${authorId}> byl potrestán moderátorem <@${interaction.user.id}>.\nHodnocení sníženo o **2.5** bodu, udělen **timeout na 60 sekund**`).setFields([]); await logMessage.edit({ embeds: [embed], components: [] }); }
+            return interaction.editReply({ content: `Uživatel byl potrestán, hodnocení sníženo a byl udělen timeout na 60 sekund.` });
         }
         return;
     }
@@ -312,33 +352,19 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (commandName === 'rate') {
-        if (!interaction.member.roles.cache.has(ownerRoleId)) {
-            return interaction.reply({ content: 'K tomuto příkazu má přístup pouze majitel serveru.', flags: MessageFlags.Ephemeral });
-        }
+        if (!interaction.member.roles.cache.has(ownerRoleId)) { return interaction.reply({ content: 'K tomuto příkazu má přístup pouze majitel serveru.', flags: MessageFlags.Ephemeral }); }
         await interaction.deferReply(); 
-        
         const user = interaction.options.getUser('uživatel');
         const ratingInput = interaction.options.getNumber('hodnocení');
-
-        if (user.id === interaction.user.id) {
-            return interaction.editReply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂'});
-        }
-        if (user.bot) {
-            return interaction.editReply({ content: 'Boti se nedají hodnotit, kámo.'});
-        }
-        
+        if (user.id === interaction.user.id) { return interaction.editReply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂'}); }
+        if (user.bot) { return interaction.editReply({ content: 'Boti se nedají hodnotit, kámo.'}); }
         const currentRating = getUserRating(user.id);
         let newRating = (currentRating + ratingInput) / 2;
-        
-        // Zajistíme, aby hodnocení zůstalo v rozmezí 0-10
         newRating = Math.max(0, Math.min(10, newRating));
-
         ratings[user.id] = newRating;
         saveRatings();
         console.log(`Uživatel ${user.id} byl ohodnocen adminem ${interaction.user.tag}. Nové skóre: ${newRating}.`);
-        
         await updateRoleStatus(user.id, interaction.guild);
-        
         await interaction.editReply({ content: `**<@${user.id}>** obdržel(a) nové hodnocení! 🔥 Nové skóre: **\`${newRating.toFixed(2)} / 10\`**` });
     }
 
@@ -398,6 +424,9 @@ client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
     if (otherBotPrefixes.some(p => message.content.startsWith(p)) || message.content.startsWith(prefix)) return;
     
+    const wasSpam = await checkRepetitiveSpam(message);
+    if (wasSpam) return;
+    
     const wasModerated = await moderateMessage(message);
     if (!wasModerated && message.channel.id === activityChannelId) {
         if (!messageCounts[message.author.id]) messageCounts[message.author.id] = 0;
@@ -416,4 +445,5 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
+
 client.login(process.env.BOT_TOKEN);
