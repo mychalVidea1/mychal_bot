@@ -406,11 +406,11 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
     const oldTimeoutEnd = oldMember.communicationDisabledUntilTimestamp;
     const newTimeoutEnd = newMember.communicationDisabledUntilTimestamp;
-    if (newTimeoutEnd && newTimeoutEnd > Date.now() && newTimeoutEnd !== oldTimeoutEnd) {
-        updateRating(newMember.id, -3, "Důvod: Timeout");
+    /*if (newTimeoutEnd && newTimeoutEnd > Date.now() && newTimeoutEnd !== oldTimeoutEnd) {
+        updateRating(newMember.id, 0, "Důvod: Timeout");
         await updateRoleStatus(newMember.id, newMember.guild, null);
         try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`Uživatel <@${newMember.id}> dostal timeout a jeho hodnocení bylo sníženo o **3 body**.`); } catch (err) {}
-    }
+    }*/
 });
 
 client.on('guildBanAdd', async (ban) => {
