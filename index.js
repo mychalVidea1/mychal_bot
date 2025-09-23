@@ -54,7 +54,7 @@ const level1Regex = new RegExp(`\\b(${level1Words.join('|')})\\b`, 'i');
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 
-const dataDirectory = './data';
+const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
 const messageCountsFilePath = `${dataDirectory}/message_counts.json`;
 
