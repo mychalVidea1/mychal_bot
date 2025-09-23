@@ -235,7 +235,7 @@ async function moderateMessage(message) {
     return false;
 }
 
-// ===== ANTI-SPAM FUNKCE =====
+// ===== ANTI-SPAM FUNKCE (OPRAVENO) =====
 async function checkRepetitiveSpam(message) {
     if (!message.guild || message.author.bot) return false;
     if (!userMessageHistory.has(message.author.id)) {
@@ -253,8 +253,13 @@ async function checkRepetitiveSpam(message) {
     const isSpam = userHistory.every(msg => msg.content === firstMessageContent && msg.content.length <= SPAM_MAX_MESSAGE_LENGTH);
 
     if (isSpam) {
-        const messagesToDelete = userHistory.keyArray();
-        userMessageHistory.delete(message.author.id); // Vyčistit hned, aby se předešlo duplicitní detekci
+        // OPRAVA ZDE:
+        // 1. Získáme seznam ID zpráv správným způsobem.
+        // 2. Až POTOM smažeme historii.
+        const messagesToDelete = [...userHistory.keys()];
+        
+        userMessageHistory.delete(message.author.id); // Historii čistíme hned, aby se předešlo duplicitní detekci
+
         try {
             await message.channel.bulkDelete(messagesToDelete);
             await applyTimeout(message.member, 60 * 1000, 'Spamování krátkých zpráv');
