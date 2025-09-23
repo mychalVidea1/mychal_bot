@@ -236,10 +236,10 @@ client.once('clientReady', async () => {
         console.log('Započato obnovování aplikačních (/) příkazů pro server.');
         const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
         const commands = [
-            new SlashCommandBuilder().setName('rate').setDescription('Ohodnotí uživatele (pouze pro majitele s rolí).').addUserOption(option => option.setName('uživatel').setDescription('Uživatel, kterého chceš ohodnotit.').setRequired(true)).addNumberOption(option => option.setName('hodnocení').setDescription('Číslo od -10 do 10.').setRequired(true).setMinValue(-10).setMaxValue(10)).setDMPermission(false),
+            new SlashCommandBuilder().setName('rate').setDescription('Ohodnotí uživatele (pouze pro majitele).').addUserOption(option => option.setName('uživatel').setDescription('Uživatel, kterého chceš ohodnotit.').setRequired(true)).addNumberOption(option => option.setName('hodnocení').setDescription('Číslo od 0 do 10.').setRequired(true).setMinValue(0).setMaxValue(10)).setDMPermission(false),
             new SlashCommandBuilder().setName('score').setDescription('Zobrazí tvé hodnocení nebo hodnocení jiného uživatele.').addUserOption(option => option.setName('uživatel').setDescription('Uživatel, jehož skóre chceš vidět.').setRequired(false)).setDMPermission(false),
             new SlashCommandBuilder().setName('scoreboard').setDescription('Zobrazí síň slávy - žebříček všech uživatelů.').setDMPermission(false),
-            new SlashCommandBuilder().setName('resetscoreboard').setDescription('Smaže všechna data hodnocení (pouze pro majitele s rolí).').setDMPermission(false),
+            new SlashCommandBuilder().setName('resetscoreboard').setDescription('Smaže všechna data hodnocení (pouze pro majitele).').setDMPermission(false),
             new SlashCommandBuilder().setName('list-servers').setDescription('Vypíše seznam serverů, kde se bot nachází (pouze pro majitele).').setDMPermission(false),
             new SlashCommandBuilder().setName('leave-server').setDescription('Přinutí bota opustit server podle ID (pouze pro majitele).').addStringOption(option => option.setName('id').setDescription('ID serveru, který má bot opustit.').setRequired(true)).setDMPermission(false),
         ].map(command => command.toJSON());
@@ -321,10 +321,10 @@ client.on('interactionCreate', async interaction => {
         const ratingInput = interaction.options.getNumber('hodnocení');
 
         if (user.id === interaction.user.id) {
-            return interaction.editReply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂' });
+            return interaction.editReply({ content: 'Snažíš se sám sobě dát hodnocení, co? Hezký pokus. 😂'});
         }
         if (user.bot) {
-            return interaction.editReply({ content: 'Boti jsou mimo hodnocení, kámo.' });
+            return interaction.editReply({ content: 'Boti se nedají hodnotit, kámo.'});
         }
         
         const currentRating = getUserRating(user.id);
@@ -335,7 +335,7 @@ client.on('interactionCreate', async interaction => {
 
         ratings[user.id] = newRating;
         saveRatings();
-        console.log(`Uživatel ${user.id} byl ručně ohodnocen adminem ${interaction.user.tag}. Nové skóre: ${newRating}.`);
+        console.log(`Uživatel ${user.id} byl ohodnocen adminem ${interaction.user.tag}. Nové skóre: ${newRating}.`);
         
         await updateRoleStatus(user.id, interaction.guild);
         
