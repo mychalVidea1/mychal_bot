@@ -356,17 +356,20 @@ async function checkRepetitiveSpam(message) {
 
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
+    
     const statuses = [
-        { name: 'tvoje chování 👀', type: ActivityType.Watching },
-        { name: 'skóre v síni slávy', type: ActivityType.Watching },
-        { name: 'příkazy /score', type: ActivityType.Listening },
-        { name: 'moderátorskou hru', type: ActivityType.Playing }
+        { name: 'tvoje chování 👀...', type: ActivityType.Watching },
+        { name: 'zda máš SAC MYCHAL v shopu!', type: ActivityType.Watching },
+        { name: 'skóre v síni slávy!', type: ActivityType.Watching },
+        { name: 'hádky...', type: ActivityType.Listening },
+        { name: 'příkazy /score"', type: ActivityType.Listening },
+        { name: 'moderátorskou výzvu!', type: ActivityType.Playing }
     ];
 
     setInterval(() => {
         const status = statuses[Math.floor(Math.random() * statuses.length)];
         client.user.setActivity(status.name, { type: status.type });
-    }, 15000); // Mění se každých 15 sekund
+    }, 60000); // Mění se každých 15 sekund
     
     try {
         console.log('Započato obnovování aplikačních (/) příkazů pro server.');
@@ -389,7 +392,7 @@ client.once('clientReady', async () => {
     try {
         const channel = await client.channels.fetch(startupChannelId);
         if (channel) {
-            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze pročištěna. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
+            const startupEmbed = new EmbedBuilder().setColor('#00FF00').setTitle('🚀 JSEM ZPÁTKY ONLINE! 🚀').setDescription('Systémy nastartovány, databáze připravena. Jsem připraven hodnotit vaše chování! 👀').setImage('https://tenor.com/view/robot-ai-artificial-intelligence-hello-waving-gif-14586208').setTimestamp().setFooter({ text: 'mychalVidea' });
             await channel.send({ embeds: [startupEmbed] });
         }
     } catch (error) {}
