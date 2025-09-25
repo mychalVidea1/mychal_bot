@@ -21,7 +21,7 @@ const client = new Client({
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 const geminiApiKey = process.env.GEMINI_API_KEY;
-const tenorApiKey = process.env.TENOR_API_KEY; // <-- PŘIDÁNO PRO TENOR API
+const tenorApiKey = process.env.TENOR_API_KEY;
 const ownerRoleId = '875091178322812988';
 const activityChannelId = '875097279650992128';
 const logChannelId = '1025689879973203968';
@@ -37,7 +37,6 @@ const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.im
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 const allowedGuildId = '875027587477409862';
 
-// Modely pro obrázkovou moderaci
 const activeImageModel = 'gemini-2.5-pro';
 const firstFallbackImageModel = 'gemini-1.5-pro-latest';
 const secondFallbackImageModel = 'gemini-2.5-flash';
@@ -53,11 +52,9 @@ const level1Regex = new RegExp(`\\b(${level1Words.join('|')})\\b`, 'i');
 const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 
-// ===== ANTI-SPAM =====
 const userMessageHistory = new Collection();
 const SPAM_MESSAGE_COUNT = 7;
 const SPAM_MAX_MESSAGE_LENGTH = 3;
-// =====================
 
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
@@ -82,6 +79,7 @@ async function applyTimeout(member, durationInMs, reason) {
         await member.timeout(durationInMs, reason);
         console.log(`Uživatel ${member.user.tag} dostal timeout na ${durationInMs / 1000}s. Důvod: ${reason}`);
     } catch (error) {
+        // Zde je chyba, kterou vidíš v logu - je to problém oprávnění, ne kódu.
         console.error(`Nepodařilo se udělit timeout uživateli ${member.user.tag} (možná nemám oprávnění?):`, error.message);
     }
 }
@@ -111,32 +109,23 @@ async function analyzeText(text) {
     return false;
 }
 
-// ===== NOVÁ FUNKCE PRO RYCHLOU KONTROLU PŘES TENOR API =====
 async function checkTenorGif(gifUrl) {
     if (!tenorApiKey) return 'needs_analysis';
-
     const match = gifUrl.match(/-(\d+)$/) || gifUrl.match(/\/(\d+)\.gif/);
     if (!match) return 'needs_analysis';
-
     const gifId = match[1];
-
     try {
         const url = `https://tenor.googleapis.com/v2/posts?ids=${gifId}&key=${tenorApiKey}&media_filter=minimal`;
         const response = await axios.get(url);
-        
         const gifData = response.data?.results?.[0];
         if (!gifData) return 'needs_analysis';
-
         const rating = gifData.content_rating;
-
         if (rating === 'rated_r') {
             console.log(`Tenor API označilo GIF ${gifId} jako nevhodný (rated_r).`);
             return 'inappropriate';
         }
-
         console.log(`Tenor API označilo GIF ${gifId} jako bezpečný (${rating}).`);
         return 'safe';
-
     } catch (error) {
         console.error("Chyba při komunikaci s Tenor API:", error.message);
         return 'needs_analysis';
@@ -166,7 +155,12 @@ async function analyzeImage(imageUrl) {
             return false;
         }
     } catch (preprocessingError) {
-        console.error("Chyba při zpracování obrázku před analýzou:", preprocessingError);
+        // ===== VYLEPŠENÉ ZPRACOVÁNÍ CHYBY 404 =====
+        if (preprocessingError.response && preprocessingError.response.status === 404) {
+            console.warn(`Nepodařilo se stáhnout obrázek (404 Not Found) z URL: ${imageUrl}. Pravděpodobně byl smazán před analýzou.`);
+        } else {
+            console.error("Chyba při zpracování obrázku před analýzou:", preprocessingError.message);
+        }
         return 'FILTERED';
     }
     const base64Image = imageBuffer.toString('base64');
@@ -206,7 +200,6 @@ async function moderateMessage(message) {
     if (mediaUrl) {
         let cleanMediaUrl = mediaUrl.includes('?') ? mediaUrl.split('?')[0] : mediaUrl;
         
-        // ===== UPRAVENÁ LOGIKA S INTEGRACÍ TENOR API =====
         const isTenorGif = /https?:\/\/(media\.)?tenor\.com/.test(cleanMediaUrl);
         let tenorCheckResult = 'needs_analysis';
 
@@ -359,7 +352,10 @@ client.on('guildCreate', guild => { if (guild.id !== allowedGuildId) { console.l
 
 client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) { return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral }); }
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            // ===== OPRAVA NA NOVOU SYNTAXI =====
+            return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral });
+        }
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const [action, originalMessageId, authorId] = interaction.customId.split('-');
         const logMessage = await interaction.channel.messages.fetch(interaction.message.id).catch(() => null);
@@ -428,7 +424,8 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'score') {
         const targetUser = interaction.options.getUser('uživatel') || interaction.user;
         const isSelfCheck = targetUser.id === interaction.user.id;
-        await interaction.deferReply({ ephemeral: isSelfCheck });
+        // ===== OPRAVA NA NOVOU SYNTAXI =====
+        await interaction.deferReply({ flags: isSelfCheck ? MessageFlags.Ephemeral : 0 });
         const userRating = getUserRating(targetUser.id);
         const scoreMsg = isSelfCheck ? `🌟 Tvé hodnocení je: **\`${userRating.toFixed(2)} / 10\`**` : `🌟 Hodnocení uživatele <@${targetUser.id}> je: **\`${userRating.toFixed(2)} / 10\`**`;
         await interaction.editReply({ content: scoreMsg });
@@ -495,5 +492,8 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
+
+
+
 
 client.login(process.env.BOT_TOKEN);
