@@ -358,11 +358,11 @@ client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
     
     const statuses = [
-        { name: 'tvoje chování 👀...', type: ActivityType.Watching },
-        { name: 'zda máš SAC MYCHAL v shopu!', type: ActivityType.Watching },
+        { name: 'tvoje chování 👀', type: ActivityType.Watching },
         { name: 'skóre v síni slávy!', type: ActivityType.Watching },
-        { name: 'hádky...', type: ActivityType.Listening },
+        { name: 'hádky.', type: ActivityType.Listening },
         { name: 'příkazy /score"', type: ActivityType.Listening },
+        { name: 'používáš SAC MYCHAL!', type: ActivityType.Watching },
         { name: 'moderátorskou výzvu!', type: ActivityType.Playing }
     ];
 
