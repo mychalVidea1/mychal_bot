@@ -361,7 +361,9 @@ client.once('clientReady', async () => {
         { name: 'tvoje chování 👀', type: ActivityType.Watching },
         { name: 'skóre v síni slávy!', type: ActivityType.Watching },
         { name: 'hádky...', type: ActivityType.Listening },
+        { name: 'mychalovi videjka...', type: ActivityType.Watching },
         { name: 'příkazy /score!', type: ActivityType.Listening },
+        { name: 'kdo má ODBĚR!', type: ActivityType.Watching },
         { name: 'zda používáš SAC MYCHAL!', type: ActivityType.Watching },
         { name: 'moderátorskou výzvu!', type: ActivityType.Playing }
     ];
