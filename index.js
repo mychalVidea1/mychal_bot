@@ -166,7 +166,7 @@ async function moderateMessage(message) {
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first();
         if (attachment.size < MAX_FILE_SIZE_BYTES && (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'))) {
-            mediaUrl = attachment.url;
+            mediaUrl = attachment.proxyURL; // <--- TOTO JE ŘEŠENÍ
         }
     }
     if (!mediaUrl && message.embeds.length > 0) {
