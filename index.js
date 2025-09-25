@@ -55,6 +55,9 @@ let lastLimitNotificationTimestamp = 0;
 const userMessageHistory = new Collection();
 const SPAM_MESSAGE_COUNT = 7;
 const SPAM_MAX_MESSAGE_LENGTH = 3;
+const userImagePostHistory = new Map();
+const IMAGE_LIMIT = 2; // Počet obrázků
+const IMAGE_LIMIT_TIMEFRAME_MS = 60 * 1000; // Časový rámec v milisekundách (60 sekund)
 
 const dataDirectory = '/data';
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
@@ -193,16 +196,44 @@ async function moderateMessage(message) {
     let mediaUrl = null;
     if (message.attachments.size > 0) { const attachment = message.attachments.first(); if (attachment.size < MAX_FILE_SIZE_BYTES && (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'))) { mediaUrl = attachment.url; } }
     if (!mediaUrl && message.embeds.length > 0) { const embed = message.embeds[0]; if (embed.image) mediaUrl = embed.image.url; else if (embed.thumbnail) mediaUrl = embed.thumbnail.url; }
-    if (!mediaUrl) { 
+    if (!mediaUrl) {
         const match = message.content.match(mediaUrlRegex);
         if (match) mediaUrl = match[0];
     }
 
     if (mediaUrl) {
-        // ===== OPRAVA ZDE: Čistíme URL jen pokud to není odkaz z Discordu =====
+        // ===== KONTROLA SPAMU OBRÁZKŮ =====
+        const now = Date.now();
+        if (!userImagePostHistory.has(message.author.id)) {
+            userImagePostHistory.set(message.author.id, []);
+        }
+        const userHistory = userImagePostHistory.get(message.author.id);
+        
+        // Odfiltrujeme staré záznamy (starší než 1 minuta)
+        const recentPosts = userHistory.filter(timestamp => now - timestamp < IMAGE_LIMIT_TIMEFRAME_MS);
+
+        if (recentPosts.length >= IMAGE_LIMIT) {
+            await applyTimeout(member, 60 * 1000, 'Spamování obrázků (překročen limit)');
+            try {
+                await message.delete();
+                const warningMsg = await message.channel.send(`<@${message.author.id}>, posíláš obrázky příliš rychle! Abychom předešli zahlcení AI, dostal jsi **timeout na 60 sekund**.`);
+                setTimeout(() => warningMsg.delete().catch(() => {}), 15000);
+            } catch (err) {
+                console.error("Chyba při trestání za spam obrázků:", err);
+            }
+            // Po potrestání historii vyčistíme, aby nemohl dostat další trest za stejné zprávy
+            userImagePostHistory.set(message.author.id, []);
+            return true; // Zastavíme další zpracování zprávy
+        }
+        
+        // Pokud je vše v pořádku, přidáme aktuální čas do historie
+        recentPosts.push(now);
+        userImagePostHistory.set(message.author.id, recentPosts);
+        // ===== KONEC KONTROLY SPAMU OBRÁZKŮ =====
+        
+        // Zbytek kódu pro analýzu obrázku pokračuje beze změny...
         let cleanMediaUrl = mediaUrl;
         if (!mediaUrl.includes('cdn.discordapp.com') && !mediaUrl.includes('media.discordapp.net')) {
-            // Tento řádek odstraňoval tokeny, teď je to bezpečné
             cleanMediaUrl = mediaUrl.split('?')[0];
         }
         
@@ -489,11 +520,13 @@ client.on('messageCreate', async message => {
         saveMessageCounts();
     }
 });
+
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) { try { await newMessage.fetch(); } catch { return; } }
     if (newMessage.author.bot || !newMessage.guild) return;
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
+
 
 client.login(process.env.BOT_TOKEN);
