@@ -361,7 +361,7 @@ client.once('clientReady', async () => {
         { name: 'tvoje chování 👀', type: ActivityType.Watching },
         { name: 'skóre v síni slávy!', type: ActivityType.Watching },
         { name: 'hádky.', type: ActivityType.Listening },
-        { name: 'příkazy /score"', type: ActivityType.Listening },
+        { name: 'příkazy /score!', type: ActivityType.Listening },
         { name: 'používáš SAC MYCHAL!', type: ActivityType.Watching },
         { name: 'moderátorskou výzvu!', type: ActivityType.Playing }
     ];
@@ -535,13 +535,10 @@ client.on('messageCreate', async message => {
         saveMessageCounts();
     }
 });
-
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) { try { await newMessage.fetch(); } catch { return; } }
     if (newMessage.author.bot || !newMessage.guild) return;
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
-
-
 client.login(process.env.BOT_TOKEN);
