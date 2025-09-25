@@ -33,7 +33,7 @@ const COOLDOWN_SECONDS = 5;
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
-const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|img\.youtube\.com)\S+(?:\.gif|\.png|\.jpg|\.jpeg|\.webp|\.mp4)/i;
+const mediaUrlRegex = /https?:\/\/(media\.tenor\.com|tenor\.com|giphy\.com|i\.imgur\.com|cdn\.discordapp\.com|media\.discordapp\.net|img\.youtube\.com)\S+/i; // Přidáno media.discordapp.net
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 const allowedGuildId = '875027587477409862';
 
@@ -79,7 +79,6 @@ async function applyTimeout(member, durationInMs, reason) {
         await member.timeout(durationInMs, reason);
         console.log(`Uživatel ${member.user.tag} dostal timeout na ${durationInMs / 1000}s. Důvod: ${reason}`);
     } catch (error) {
-        // Zde je chyba, kterou vidíš v logu - je to problém oprávnění, ne kódu.
         console.error(`Nepodařilo se udělit timeout uživateli ${member.user.tag} (možná nemám oprávnění?):`, error.message);
     }
 }
@@ -155,9 +154,8 @@ async function analyzeImage(imageUrl) {
             return false;
         }
     } catch (preprocessingError) {
-        // ===== VYLEPŠENÉ ZPRACOVÁNÍ CHYBY 404 =====
         if (preprocessingError.response && preprocessingError.response.status === 404) {
-            console.warn(`Nepodařilo se stáhnout obrázek (404 Not Found) z URL: ${imageUrl}. Pravděpodobně byl smazán před analýzou.`);
+            console.warn(`Nepodařilo se stáhnout obrázek (404 Not Found) z URL: ${imageUrl}. Pravděpodobně byl smazán nebo odkaz vypršel.`);
         } else {
             console.error("Chyba při zpracování obrázku před analýzou:", preprocessingError.message);
         }
@@ -195,10 +193,18 @@ async function moderateMessage(message) {
     let mediaUrl = null;
     if (message.attachments.size > 0) { const attachment = message.attachments.first(); if (attachment.size < MAX_FILE_SIZE_BYTES && (attachment.contentType?.startsWith('image/') || attachment.contentType?.startsWith('video/'))) { mediaUrl = attachment.url; } }
     if (!mediaUrl && message.embeds.length > 0) { const embed = message.embeds[0]; if (embed.image) mediaUrl = embed.image.url; else if (embed.thumbnail) mediaUrl = embed.thumbnail.url; }
-    if (!mediaUrl) { const match = message.content.match(mediaUrlRegex); if (match) mediaUrl = match[0]; }
+    if (!mediaUrl) { 
+        const match = message.content.match(mediaUrlRegex);
+        if (match) mediaUrl = match[0];
+    }
 
     if (mediaUrl) {
-        let cleanMediaUrl = mediaUrl.includes('?') ? mediaUrl.split('?')[0] : mediaUrl;
+        // ===== OPRAVA ZDE: Čistíme URL jen pokud to není odkaz z Discordu =====
+        let cleanMediaUrl = mediaUrl;
+        if (!mediaUrl.includes('cdn.discordapp.com') && !mediaUrl.includes('media.discordapp.net')) {
+            // Tento řádek odstraňoval tokeny, teď je to bezpečné
+            cleanMediaUrl = mediaUrl.split('?')[0];
+        }
         
         const isTenorGif = /https?:\/\/(media\.)?tenor\.com/.test(cleanMediaUrl);
         let tenorCheckResult = 'needs_analysis';
@@ -353,7 +359,6 @@ client.on('guildCreate', guild => { if (guild.id !== allowedGuildId) { console.l
 client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            // ===== OPRAVA NA NOVOU SYNTAXI =====
             return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral });
         }
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -424,7 +429,6 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'score') {
         const targetUser = interaction.options.getUser('uživatel') || interaction.user;
         const isSelfCheck = targetUser.id === interaction.user.id;
-        // ===== OPRAVA NA NOVOU SYNTAXI =====
         await interaction.deferReply({ flags: isSelfCheck ? MessageFlags.Ephemeral : 0 });
         const userRating = getUserRating(targetUser.id);
         const scoreMsg = isSelfCheck ? `🌟 Tvé hodnocení je: **\`${userRating.toFixed(2)} / 10\`**` : `🌟 Hodnocení uživatele <@${targetUser.id}> je: **\`${userRating.toFixed(2)} / 10\`**`;
@@ -466,7 +470,6 @@ client.on('guildBanAdd', async (ban) => {
     await updateRoleStatus(ban.user.id, ban.guild, null);
     try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN a jeho hodnocení bylo resetováno na **0**.`); } catch (err) {}
 });
-
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.guild) return;
     if (otherBotPrefixes.some(p => message.content.startsWith(p)) || message.content.startsWith(prefix)) return;
@@ -492,8 +495,5 @@ client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
-
-
-
 
 client.login(process.env.BOT_TOKEN);
