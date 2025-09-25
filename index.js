@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags, Collection, ActivityType } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const sharp = require('sharp');
@@ -356,6 +356,18 @@ async function checkRepetitiveSpam(message) {
 
 client.once('clientReady', async () => {
     console.log(`Bot je online jako ${client.user.tag}!`);
+    const statuses = [
+        { name: 'tvoje chování 👀', type: ActivityType.Watching },
+        { name: 'skóre v síni slávy', type: ActivityType.Watching },
+        { name: 'příkazy /score', type: ActivityType.Listening },
+        { name: 'moderátorskou hru', type: ActivityType.Playing }
+    ];
+
+    setInterval(() => {
+        const status = statuses[Math.floor(Math.random() * statuses.length)];
+        client.user.setActivity(status.name, { type: status.type });
+    }, 15000); // Mění se každých 15 sekund
+    
     try {
         console.log('Započato obnovování aplikačních (/) příkazů pro server.');
         const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
