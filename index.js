@@ -59,7 +59,7 @@ const SPAM_MESSAGE_COUNT = 7;
 const SPAM_MAX_MESSAGE_LENGTH = 3;
 // =====================
 
-const dataDirectory = './data'; // Doporučení: Použít relativní cestu pro lepší přenositelnost
+const dataDirectory = '/data'; // Doporučení: Použít relativní cestu pro lepší přenositelnost
 const ratingsFilePath = `${dataDirectory}/ratings.json`;
 const messageCountsFilePath = `${dataDirectory}/message_counts.json`;
 
