@@ -98,21 +98,21 @@ async function getGeminiChatResponse(text, username) {
         model: "gemini-2.5-flash",
         contents: [{ role: "user", parts: [{ text: prompt }] }]
       });
-    
+
       // Gemini 2.5 má výstup v response.output_text
-      return response.output_text || "AI neposlala žádnou odpověď.";
-    
+      return response.text || "AI neposlala žádnou odpověď. 2.5";
+
     } catch (error) {
       console.error("Chyba u 2.5:", error.message);
-    
+
       // fallback na 2.0-flash
       try {
         const response = await ai.models.generateContent({
           model: "gemini-2.0-flash",
           contents: [{ role: "user", parts: [{ text: prompt }] }]
         });
-      
-        return response.output_text || "AI neposlala žádnou odpověď.";
+
+        return response.text || "AI neposlala žádnou odpověď. V2.0";
       } catch (err) {
         if (err.status === 429) {
           return "Vyčerpal jsi dnešní free limit pro AI. Zkus to zase zítra 🍀";
