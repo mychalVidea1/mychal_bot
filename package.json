@@ -2,7 +2,7 @@
   "name": "mychal-bot",
   "version": "3.1.1",
   "description": "Pokročilý Discord bot s reputačním systémem a AI moderací.",
-  "main": "index.js",
+  "main": "clear-cmd.js",
   "scripts": {
     "start": "node clear-cmd.js"
   },
