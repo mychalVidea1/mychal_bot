@@ -27,9 +27,11 @@ const activityChannelId = '875097279650992128';
 const logChannelId = '1025689879973203968';
 const startupChannelId = '1025689879973203968';
 const aiModerationChannelIds = ['875097279650992128', '1261094481415897128', '1275999194313785415', '1322337083745898616', '1419340737048350880'];
-const MAX_WORDS_FOR_AI = 67;
+const MAX_WORDS_FOR_AI = 100;
 const MIN_CHARS_FOR_AI = 4;
-const COOLDOWN_SECONDS = 10;
+const COOLDOWN_SECONDS = 6;
+const chatCooldowns = new Map();
+const CHAT_COOLDOWN_SECONDS = 15; // Cooldown 15 sekund speciálně pro /chat
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
@@ -89,39 +91,30 @@ async function applyTimeout(member, durationInMs, reason) {
 async function getGeminiChatResponse(text, username) {
     if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
 
-    const primaryModel = 'gemini-2.5-flash';
-    const fallbackModel = 'gemini-2.0-flash';
-    const modelsToTry = [primaryModel, fallbackModel];
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash']; // Správné pořadí
 
     const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 110 } };
-
     let lastError = null;
 
     for (const model of modelsToTry) {
         try {
-            const response = await axios.post(`https://generativelace.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
+            // ZDE BYL PŘEKLEP - správně je 'generativelanguage'
+            const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
             const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (candidateText) {
-                return candidateText.trim(); // Úspěšná odpověď, vrátíme ji
+                return candidateText.trim();
             }
         } catch (error) {
-            lastError = error; // Uložíme si poslední chybu pro pozdější kontrolu
-            console.warn(`Model ${model} selhal. Zkouším další... Důvod: ${error.message}`);
+            lastError = error;
+            console.warn(`Model ${model} selhal. Důvod: ${error.message}`);
         }
     }
 
-    // ==========================================================
-    // TATO ČÁST KÓDU VE VAŠÍ VERZI CHYBĚLA
-    // Spustí se POUZE pokud selžou VŠECHNY modely ve smyčce
-    // ==========================================================
-    
-    // Zkontrolujeme, jestli poslední chyba byla kvůli přetížení (rate limit)
     if (lastError && lastError.response && lastError.response.status === 429) {
         return "AI je momentálně přetížená kvůli velkému množství dotazů. Zkus to prosím za chvíli.";
     }
 
-    // Pokud to byla jiná chyba, pošleme obecnou zprávu
     console.error(`Chyba při komunikaci s Gemini API: Všechny modely (${modelsToTry.join(', ')}) selhaly.`);
     return "Něco se pokazilo a AI nemůže odpovědět.";
 }
@@ -452,6 +445,18 @@ client.on('interactionCreate', async interaction => {
     const ownerId = process.env.OWNER_ID;
 
     if (commandName === 'chat') {
+        // --- ZAČÁTEK NOVÉ LOGIKY PRO COOLDOWN ---
+        const now = Date.now();
+        const userCooldown = chatCooldowns.get(interaction.user.id);
+        if (userCooldown) {
+            const timeLeft = (userCooldown + CHAT_COOLDOWN_SECONDS * 1000 - now) / 1000;
+            if (timeLeft > 0) {
+                return interaction.reply({ content: `S AI můžeš chatovat znovu za **${timeLeft.toFixed(1)}s**.`, ephemeral: true });
+            }
+        }
+        chatCooldowns.set(interaction.user.id, now);
+        // --- KONEC NOVÉ LOGIKY PRO COOLDOWN ---
+
         const userMessage = interaction.options.getString('zpráva');
 
         if (level3Regex.test(userMessage) || level2Regex.test(userMessage)) {
@@ -460,14 +465,13 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: 'Tento příkaz nelze použít s nevhodnými slovy. Tvé hodnocení bylo sníženo.', ephemeral: true });
         }
 
-            await interaction.deferReply();
+        await interaction.deferReply();
         
-        // ZDE JE KLÍČOVÁ OPRAVA: Posíláme jméno uživatele do funkce
-            const aiResponse = await getGeminiChatResponse(userMessage, interaction.user.username);
+        const aiResponse = await getGeminiChatResponse(userMessage, interaction.user.username);
 
-            if (level3Regex.test(aiResponse) || level2Regex.test(aiResponse)) {
-                console.error(`[AI Safety] AI se pokusila vygenerovat nevhodnou odpověď: "${aiResponse}"`);
-                return interaction.editReply({ content: 'AI se pokusila odpovědět, ale její odpověď byla z bezpečnostních důvodů zablokována.' });
+        if (level3Regex.test(aiResponse) || level2Regex.test(aiResponse)) {
+            console.error(`[AI Safety] AI se pokusila vygenerovat nevhodnou odpověď: "${aiResponse}"`);
+            return interaction.editReply({ content: 'AI se pokusila odpovědět, ale její odpověď byla z bezpečnostních důvodů zablokována.' });
         }
 
         const embed = new EmbedBuilder().setColor('#5865F2').setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() }).setDescription(userMessage);
