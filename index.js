@@ -498,7 +498,7 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply();
 
         // NOVÉ: Načtení a formátování kontextu z kanálu
-        const lastMessages = await interaction.channel.messages.fetch({ limit: 5 });
+        const lastMessages = await interaction.channel.messages.fetch({ limit: 8 });
         const context = lastMessages
             .filter(m => !m.author.bot && m.content) // Ignoruje boty a zprávy bez textu
             .map(m => `${m.author.username}: ${m.content}`) // Formátuje "Uživatel: Zpráva"
