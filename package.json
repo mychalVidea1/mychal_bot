@@ -1,10 +1,10 @@
 {
   "name": "mychal-bot",
-  "version": "3.1.1",
+  "version": "4.0.1",
   "description": "Pokročilý Discord bot s reputačním systémem a AI moderací.",
-  "main": "clear-cmd.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node clear-cmd.js"
+    "start": "node index.js"
   },
   "author": "mychalVidea",
   "license": "ISC",
