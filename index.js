@@ -42,8 +42,8 @@ const firstFallbackImageModel = 'gemini-1.5-pro-latest';
 const secondFallbackImageModel = 'gemini-2.5-flash';
 
 const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'negry' ];
-const level2Words = [ 'kundo', 'kundy', 'píčo', 'pico', 'pičo', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
-const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'curak', 'píča', 'zkurvysyn', 'dopíči', 'dokundy'];
+const level2Words = [ 'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
+const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'píča', 'zkurvysyn', 'dopíči', 'dokundy'];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -53,8 +53,8 @@ const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 
 const userMessageHistory = new Collection();
-const SPAM_MESSAGE_COUNT = 7;
-const SPAM_MAX_MESSAGE_LENGTH = 3;
+const SPAM_MESSAGE_COUNT = 6;
+const SPAM_MAX_MESSAGE_LENGTH = 4;
 const userImagePostHistory = new Map();
 const IMAGE_LIMIT = 2;
 const IMAGE_LIMIT_TIMEFRAME_MS = 60 * 1000;
@@ -166,7 +166,12 @@ async function checkTenorGif(gifUrl) {
         const response = await axios.get(url);
         const gifData = response.data?.results?.[0];
         if (!gifData) return 'needs_analysis';
-        if (gifData.content_rating === 'rated_r') return 'inappropriate';
+        const rating = gifData.content_rating;
+        if (rating === 'rated_r') {
+            console.log(`Tenor API označilo GIF ${gifId} jako nevhodný (rated_r).`);
+            return 'inappropriate';
+        }
+        console.log(`Tenor API označilo GIF ${gifId} jako bezpečný (${rating}).`);
         return 'safe';
     } catch (error) {
         console.error("Chyba při komunikaci s Tenor API:", error.message);
@@ -179,45 +184,53 @@ async function analyzeImage(imageUrl) {
     const modelsToTry = [activeImageModel, firstFallbackImageModel, secondFallbackImageModel];
     let imageBuffer, mimeType;
     try {
-        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-        imageBuffer = imageResponse.data;
-        mimeType = imageResponse.headers['content-type'];
+        imageBuffer = (await axios.get(imageUrl, { responseType: 'arraybuffer' })).data;
+        mimeType = (await axios.head(imageUrl)).headers['content-type'];
         if (mimeType.startsWith('image/gif')) {
             const frames = await getFrames({ url: imageBuffer, frames: 'all', outputType: 'png', quality: 10 });
             if (frames.length === 0) return false;
             const middleFrameIndex = Math.floor(frames.length / 2);
             const frameStream = frames[middleFrameIndex].getImage();
             const chunks = [];
-            for await (const chunk of frameStream) { chunks.push(chunk); }
+            await new Promise((resolve, reject) => { frameStream.on('data', chunk => chunks.push(chunk)); frameStream.on('error', reject); frameStream.on('end', resolve); });
             imageBuffer = Buffer.concat(chunks);
             mimeType = 'image/png';
         }
         if (mimeType.startsWith('image/')) {
             imageBuffer = await sharp(imageBuffer).resize({ width: 512, withoutEnlargement: true }).toBuffer();
-        } else { return false; }
-    } catch (error) {
-        if (error.response?.status === 404) { console.warn(`Nepodařilo se stáhnout obrázek (404) z URL: ${imageUrl}.`); }
-        else { console.error("Chyba při zpracování obrázku:", error.message); }
+        } else {
+            return false;
+        }
+    } catch (preprocessingError) {
+        if (preprocessingError.response && preprocessingError.response.status === 404) {
+            console.warn(`Nepodařilo se stáhnout obrázek (404 Not Found) z URL: ${imageUrl}. Pravděpodobně byl smazán nebo odkaz vypršel.`);
+        } else {
+            console.error("Chyba při zpracování obrázku před analýzou:", preprocessingError.message);
+        }
         return 'FILTERED';
     }
     const base64Image = imageBuffer.toString('base64');
-    const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí, krev ve hrách, a běžné internetové memy. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (nevhodný) nebo "NE" (v pořádku).`;
+    const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je nevhodný) nebo "NE" (pokud je v pořádku).`;
     const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
     for (const model of modelsToTry) {
         try {
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-            if (!response.data.candidates || response.data.candidates.length === 0) return 'FILTERED';
+            if (!response.data.candidates || response.data.candidates.length === 0) {
+                return 'FILTERED';
+            }
             const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
             return result.includes("ANO");
         } catch (error) {
-            const status = error.response ? error.response.status : null;
-            if (status === 429 || status === 404 || status === 500 || status === 503) { continue; }
-            else { break; }
+             const status = error.response ? error.response.status : null;
+            if (status === 429 || status === 404 || status === 500 || status === 503) {
+                continue;
+            } else {
+                break;
+            }
         }
     }
     return 'FILTERED';
 }
-
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = message.member;
