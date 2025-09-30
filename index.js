@@ -89,7 +89,8 @@ async function applyTimeout(member, durationInMs, reason) {
 async function getGeminiChatResponse(text) {
     if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
     const model = 'gemini-2.0-flash';
-    const prompt = `Jsi herní parťák na Discordu. Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 30 slov.\n\nUživatel: "${text}"\n\nTy:`;
+    const prompt = `Jsi AI moderátor na Fortnite, CS2 (csko), Minecraft discord serveru se jménem "🍀 SAC MYCHAL 🍀", ale někdo chce pokecat. Tady máš nějaký příkazy co podporuješ kdyby se někdo ptal: "/chat - Pošle zprávu umělé inteligenci a dostaneš odpověď.
+/score - Zobrazí tvoje hodnocení (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli. Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 40 slov.\n\nUživatel: "${text}"\n\nTy:`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 70 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
