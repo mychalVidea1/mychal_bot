@@ -424,7 +424,7 @@ client.once('clientReady', async () => {
         const clientId = process.env.CLIENT_ID;
         const guildId = process.env.GUILD_ID;
         if (!clientId || !guildId) { throw new Error("CLIENT_ID nebo GUILD_ID není nastaveno v .env souboru!"); }
-        await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: commands });
+        await rest.put(Routes.applicationCommands(clientId), { body: commands });
         console.log('Úspěšně obnoveny aplikační příkazy pro server.');
     } catch (error) { console.error('Chyba při registraci (/) příkazů:', error); }
     try {
