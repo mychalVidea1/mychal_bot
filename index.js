@@ -126,13 +126,21 @@ async function analyzeText(textToAnalyze, context) {
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
     let lastError = null;
     const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Tvá tolerance je vyšší. Ignoruj běžné nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 20 } };
+    
+    const contents = [{ role: "user", parts: [{ text: prompt }] }];
+    const generationConfig = { maxOutputTokens: 20 };
 
     for (const model of modelsToTry) {
         try {
-            const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-            console.log(model, textToAnalyze)
-            const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            const response = await ai.models.generateContent({
+                model: model,
+                contents: contents,
+                generationConfig: generationConfig
+            });
+            
+            console.log(model, textToAnalyze);
+            const candidateText = response.text;
+
             if (candidateText) {
                 return candidateText.trim().toUpperCase().includes("ANO");
             }
@@ -140,14 +148,19 @@ async function analyzeText(textToAnalyze, context) {
             continue;
         } catch (error) {
             lastError = error;
-            const status = error.response ? error.response.status : null;
+            const status = error.status || (error.response ? error.response.status : null);
             if (status === 429 || status === 500 || status === 404) {
                 console.warn(`Model ${model} selhal se statusem ${status}. Zkouším další...`);
                 continue;
-            } else { break; }
+            } else { 
+                break; 
+            }
         }
     }
-    if (lastError?.response?.status === 429) return 'API_LIMIT';
+    
+    const lastStatus = lastError?.status || (lastError?.response ? lastError.response.status : null);
+    if (lastStatus === 429) return 'API_LIMIT';
+
     console.error(`Všechny modely pro analýzu textu selhaly. Poslední chyba:`, lastError?.message);
     return false;
 }
@@ -207,17 +220,25 @@ async function analyzeImage(imageUrl) {
     }
     const base64Image = imageBuffer.toString('base64');
     const prompt = `Jsi AI moderátor pro herní Discord server. Posuď, jestli je tento obrázek skutečně nevhodný pro komunitu (pornografie, gore, explicitní násilí, nenávistné symboly, rasismus). Ignoruj herní násilí (střílení ve hrách), krev ve hrách, herní rozhraní (UI) a běžné internetové memy, které nejsou extrémní. Buď shovívavý k textu na screenshotech. Odpověz jen "ANO" (pokud je nevhodný) nebo "NE" (pokud je v pořádku).`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Image } }] }] };
+
+    const imagePart = { inline_data: { mime_type: mimeType, data: base64Image } };
+    const textPart = { text: prompt };
+    const contents = [{ role: "user", parts: [textPart, imagePart] }];
+
     for (const model of modelsToTry) {
         try {
-            const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-            if (!response.data.candidates || response.data.candidates.length === 0) {
+            const response = await ai.models.generateContent({
+                model: model,
+                contents: contents
+            });
+            
+            if (!response.text) {
                 return 'FILTERED';
             }
-            const result = response.data.candidates[0].content.parts[0].text.trim().toUpperCase();
+            const result = response.text.trim().toUpperCase();
             return result.includes("ANO");
         } catch (error) {
-             const status = error.response ? error.response.status : null;
+             const status = error.status || (error.response ? error.response.status : null);
             if (status === 429 || status === 404 || status === 500 || status === 503) {
                 continue;
             } else {
@@ -227,6 +248,7 @@ async function analyzeImage(imageUrl) {
     }
     return 'FILTERED';
 }
+
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = message.member;
