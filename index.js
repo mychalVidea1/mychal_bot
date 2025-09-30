@@ -89,8 +89,7 @@ async function applyTimeout(member, durationInMs, reason) {
 async function getGeminiChatResponse(text) {
     if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
     const model = 'gemini-2.0-flash';
-    const prompt = `Jsi AI moderátor na Fortnite, CS2 (csko), Minecraft discord serveru se jménem "🍀 SAC MYCHAL 🍀", ale někdo chce pokecat. Tady máš nějaký příkazy co podporuješ kdyby se někdo ptal: "/chat - Pošle zprávu umělé inteligenci a dostaneš odpověď.
-/score - Zobrazí tvoje hodnocení (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli. Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 40 slov.\n\nUživatel: "${text}"\n\nTy:`;
+    const prompt = `Jsi AI moderátor na Fortnite, CS2 (csko), Minecraft discord serveru streamera / youtubera "mychalVidea", lidi tě nazývají "BOT" nebo "🍀 SAC MYCHAL 🍀", ale někdo chce pokecat. Tady máš nějaký příkazy co podporuješ kdyby se někdo ptal: "/chat - Pošle zprávu umělé inteligenci a dostaneš odpověď. /score - Zobrazí tvoje hodnocení (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli. Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 40 slov.\n\nUživatel: "${text}"\n\nTy:`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 70 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
@@ -107,7 +106,7 @@ async function analyzeText(textToAnalyze, context) {
     if (!geminiApiKey) return false;
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
     let lastError = null;
-    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Tvá tolerance je vysoká. Ignoruj běžné nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
+    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Tvá tolerance je vyšší. Ignoruj běžné nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
 
     for (const model of modelsToTry) {
