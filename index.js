@@ -89,8 +89,8 @@ async function applyTimeout(member, durationInMs, reason) {
 async function getGeminiChatResponse(text) {
     if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
     const model = 'gemini-2.0-flash';
-    const prompt = `Jsi AI moderátor na Fortnite, CS2 (csko), Minecraft discord serveru streamera / youtubera "mychalVidea", lidi tě nazývají "BOT" nebo "🍀 SAC MYCHAL 🍀", ale někdo chce pokecat. Tady máš nějaký příkazy co podporuješ kdyby se někdo ptal: "/chat - Pošle zprávu umělé inteligenci a dostaneš odpověď. /score - Zobrazí tvoje hodnocení (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli. Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 40 slov.\n\nUživatel: "${text}"\n\nTy:`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 70 } };
+    const prompt = `Jsi AI moderátor na Fortnite, CS2 (csko), Minecraft discord serveru streamera / youtubera "mychalVidea", lidi tě nazývají "BOT" nebo "🍀 SAC MYCHAL 🍀". Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu umělé inteligenci a dostaneš odpověď. /score - Zobrazí tvoje hodnocení (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako BOT ve formě člověka (nemůžeš nic hrát), ještě zkousneme Roblox, ale Valorant a League of Legends tady nesnasime! Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov.\n\nUživatel: "${text}"\n\nTy:`;
+    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 100 } };
     try {
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
