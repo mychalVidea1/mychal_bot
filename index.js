@@ -1,8 +1,6 @@
 require('dotenv').config();
 const { GoogleGenAI } = require("@google/genai");
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags, Collection, ActivityType } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
@@ -24,6 +22,7 @@ const client = new Client({
 const prefix = 'm!';
 const roleId = process.env.ROLE_ID;
 const geminiApiKey = process.env.GEMINI_API_KEY;
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const tenorApiKey = process.env.TENOR_API_KEY;
 const ownerRoleId = '875091178322812988';
 const activityChannelId = '875097279650992128';
