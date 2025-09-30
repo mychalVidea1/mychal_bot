@@ -9,6 +9,7 @@
   "author": "mychalVidea",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "^x.y.z"
     "axios": "^1.6.8",
     "discord.js": "^14.15.2",
     "dotenv": "^16.4.5",
