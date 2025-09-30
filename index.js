@@ -1,4 +1,7 @@
 require('dotenv').config();
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, MessageFlags, Collection, ActivityType } = require('discord.js');
 const fs = require('fs');
@@ -88,38 +91,34 @@ async function applyTimeout(member, durationInMs, reason) {
 }
 
 async function getGeminiChatResponse(text, username) {
-  if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
-
-  // nejdřív 2.5, jen když selže -> fallback na 2.0
-  const modelsToTry = [
-    { name: 'gemini-2.5-flash', endpoint: 'v1beta' },
-    { name: 'gemini-2.0-flash', endpoint: 'v1beta' }
-  ];
-
-  const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
-  const requestBody = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { maxOutputTokens: 100 }
-  };
-
-  for (const { name: model, endpoint } of modelsToTry) {
+    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
+    
     try {
-      const url = `https://generativelanguage.googleapis.com/${endpoint}/models/${model}:generateContent?key=${geminiApiKey}`;
-      const response = await axios.post(url, requestBody);
-      const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (candidateText) return candidateText.trim();
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
+      });
+
+      return response.response.text();
     } catch (error) {
-      const status = error?.response?.status;
-      const message = error?.response?.data?.error?.message || error.message;
-      console.warn(`Model ${model} selhal. status=${status}, msg=${message}`);
+      console.error("Chyba u 2.5:", error.message);
 
-      // Pokud failne 2.5, zkusíme 2.0
-      // Pokud failne 2.0 (třeba kvóta 429), loop skončí a vrátí fallback zprávu
+      // fallback na 2.0-flash
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: [{ role: "user", parts: [{ text: prompt }] }]
+        });
+
+        return response.response.text();
+      } catch (err) {
+        if (err.status === 429) {
+          return "Vyčerpal jsi dnešní free limit pro AI. Zkus to zase zítra 🍀";
+        }
+        return "Něco se pokazilo a AI nemůže odpovědět.";
+      }
     }
-  }
-
-  return "Něco se pokazilo a AI nemůže odpovědět.";
-}
+}   
 
 async function analyzeText(textToAnalyze, context) {
     if (!geminiApiKey) return false;
