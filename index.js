@@ -339,10 +339,10 @@ client.once('clientReady', async () => {
         { name: 'skóre v síni slávy!', type: ActivityType.Watching },
         { name: 'hádky...', type: ActivityType.Listening },
         { name: 'mychalovi videjka...', type: ActivityType.Watching },
-        { name: 'příkazy /score!', type: ActivityType.Listening },
+        { name: 'příkazy /chat', type: ActivityType.Listening },
         { name: 'kdo má ODBĚR!', type: ActivityType.Watching },
         { name: 'zda používáš SAC MYCHAL!', type: ActivityType.Watching },
-        { name: 'moderátorskou výzvu!', type: ActivityType.Playing }
+        { name: 'moderátorskou challenge!', type: ActivityType.Playing }
     ];
     setInterval(() => {
         const status = statuses[Math.floor(Math.random() * statuses.length)];
