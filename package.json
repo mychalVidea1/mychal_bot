@@ -4,7 +4,7 @@
   "description": "Pokročilý Discord bot s reputačním systémem a AI moderací.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node clear-cmd.js"
   },
   "author": "mychalVidea",
   "license": "ISC",
