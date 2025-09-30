@@ -88,43 +88,81 @@ async function applyTimeout(member, durationInMs, reason) {
 }
 
 async function getGeminiChatResponse(text, username) {
-    if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
+  if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
 
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash']; // Správné pořadí
+  const modelsToTry = [
+    { name: 'gemini-2.5-flash', endpoint: 'v1' },
+    { name: 'gemini-2.0-flash', endpoint: 'v1beta' }
+  ];
 
-    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 100 } };
-    let lastError = null;
+  const prompt = `Jsi AI moderátor ... Uživatel "${username}" se ptá: "${text}"\n\nTy:`; // zkráceno pro přehled
+  const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 100 } };
 
-    for (const model of modelsToTry) {
+  const sleep = ms => new Promise(res => setTimeout(res, ms));
+  let lastError = null;
+
+  for (const modelObj of modelsToTry) {
+    const model = modelObj.name;
+    const endpoint = modelObj.endpoint;
+    const maxRetries = 3;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // vyber správný endpoint podle modelu
-        const endpoint = model.startsWith("gemini-2.5")
-          ? "v1"
-          : "v1beta";
-
-        const response = await axios.post(
-          `https://generativelanguage.googleapis.com/${endpoint}/models/${model}:generateContent?key=${geminiApiKey}`,
-          requestBody
-        );
-
+        const url = `https://generativelanguage.googleapis.com/${endpoint}/models/${model}:generateContent?key=${geminiApiKey}`;
+        const response = await axios.post(url, requestBody, { timeout: 20000 });
         const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (candidateText) {
-          return candidateText.trim();
-        }
+        if (candidateText) return candidateText.trim();
+        // pokud není text, už dál nemá smysl retryovat — break
+        break;
       } catch (error) {
         lastError = error;
-        console.warn(`Model ${model} selhal. Důvod: ${error.message}`);
+        const status = error?.response?.status;
+        const headers = error?.response?.headers || {};
+        console.warn(`Model ${model} selhal (attempt ${attempt}/${maxRetries}). status=${status} msg=${error.message}`);
+        console.warn('Response data:', error?.response?.data);
+        console.warn('Response headers:', headers);
+
+        if (status === 429) {
+          // použij Retry-After pokud je, jinak exponenciální backoff + jitter
+          let waitMs = 0;
+          const ra = headers['retry-after'] || headers['Retry-After'];
+          if (ra) {
+            const n = Number(ra);
+            if (!Number.isNaN(n)) waitMs = n * 1000;
+            else {
+              const t = Date.parse(ra);
+              if (!isNaN(t)) waitMs = Math.max(0, t - Date.now());
+            }
+          } else {
+            const base = 1000;
+            const jitter = Math.floor(Math.random() * 300);
+            waitMs = Math.pow(2, attempt) * base + jitter;
+          }
+
+          if (attempt < maxRetries) {
+            console.warn(`429 — čekám ${waitMs}ms před dalším pokusem pro ${model}...`);
+            await sleep(waitMs);
+            continue; // retry stejného modelu
+          } else {
+            console.warn(`Max pokusů pro ${model} vyčerpán — přecházím na další model (pokud existuje).`);
+            break; // zkus další model v modelsToTry
+          }
+        } else {
+          // není to 429 — většinou chybová konfigurace / auth, tak přejdeme na další model
+          break;
+        }
       }
-    }
+    } // end attempts
+  } // end models
 
-    if (lastError && lastError.response && lastError.response.status === 429) {
-        return "AI je momentálně přetížená kvůli velkému množství dotazů. Zkus to prosím za chvíli.";
-    }
+  if (lastError?.response?.status === 429) {
+    return "AI je momentálně přetížená (429). Funkce zkusila retry s backoff, ale limit trvá.";
+  }
 
-    console.error(`Chyba při komunikaci s Gemini API: Všechny modely (${modelsToTry.join(', ')}) selhaly.`);
-    return "Něco se pokazilo a AI nemůže odpovědět.";
+  console.error(`Chyba při komunikaci s Gemini API: Všechny modely selhaly. Poslední chyba:`, lastError?.message || lastError);
+  return "Něco se pokazilo a AI nemůže odpovědět.";
 }
+
 
 async function analyzeText(textToAnalyze, context) {
     if (!geminiApiKey) return false;
