@@ -97,17 +97,25 @@ async function getGeminiChatResponse(text, username) {
     let lastError = null;
 
     for (const model of modelsToTry) {
-        try {
-            // ZDE BYL PŘEKLEP - správně je 'generativelanguage'
-            const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-            const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (candidateText) {
-                return candidateText.trim();
-            }
-        } catch (error) {
-            lastError = error;
-            console.warn(`Model ${model} selhal. Důvod: ${error.message}`);
+      try {
+        // vyber správný endpoint podle modelu
+        const endpoint = model.startsWith("gemini-2.5")
+          ? "v1"
+          : "v1beta";
+
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/${endpoint}/models/${model}:generateContent?key=${geminiApiKey}`,
+          requestBody
+        );
+
+        const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (candidateText) {
+          return candidateText.trim();
         }
+      } catch (error) {
+        lastError = error;
+        console.warn(`Model ${model} selhal. Důvod: ${error.message}`);
+      }
     }
 
     if (lastError && lastError.response && lastError.response.status === 429) {
@@ -128,6 +136,7 @@ async function analyzeText(textToAnalyze, context) {
     for (const model of modelsToTry) {
         try {
             const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
+            console.log(model, textToAnalyze)
             const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (candidateText) {
                 return candidateText.trim().toUpperCase().includes("ANO");
