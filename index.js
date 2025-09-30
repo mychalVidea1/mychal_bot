@@ -415,9 +415,24 @@ client.on('interactionCreate', async interaction => {
     const ownerId = process.env.OWNER_ID;
 
     if (commandName === 'chat') {
-        await interaction.deferReply();
         const userMessage = interaction.options.getString('zpráva');
-        const aiResponse = await getGeminiChatResponse(userMessage);
+
+        if (level3Regex.test(userMessage) || level2Regex.test(userMessage)) {
+            updateRating(interaction.user.id, -1, "Důvod: Pokus o zneužití /chat příkazu");
+            await updateRoleStatus(interaction.user.id, interaction.guild);
+            return interaction.reply({ content: 'Tento příkaz nelze použít s nevhodnými slovy. Tvé hodnocení bylo sníženo.', ephemeral: true });
+        }
+
+            await interaction.deferReply();
+        
+        // ZDE JE KLÍČOVÁ OPRAVA: Posíláme jméno uživatele do funkce
+            const aiResponse = await getGeminiChatResponse(userMessage, interaction.user.username);
+
+            if (level3Regex.test(aiResponse) || level2Regex.test(aiResponse)) {
+                console.error(`[AI Safety] AI se pokusila vygenerovat nevhodnou odpověď: "${aiResponse}"`);
+                return interaction.editReply({ content: 'AI se pokusila odpovědět, ale její odpověď byla z bezpečnostních důvodů zablokována.' });
+        }
+
         const embed = new EmbedBuilder().setColor('#5865F2').setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() }).setDescription(userMessage);
         await interaction.editReply({ embeds: [embed] });
         return interaction.followUp({ content: aiResponse });
