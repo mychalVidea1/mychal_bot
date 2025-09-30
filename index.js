@@ -92,7 +92,7 @@ async function getGeminiChatResponse(text, username) {
 
   // nejdřív 2.5, jen když selže -> fallback na 2.0
   const modelsToTry = [
-    { name: 'gemini-2.5-flash', endpoint: 'v1' },
+    { name: 'gemini-2.5-flash', endpoint: 'v1beta' },
     { name: 'gemini-2.0-flash', endpoint: 'v1beta' }
   ];
 
