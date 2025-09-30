@@ -88,18 +88,30 @@ async function applyTimeout(member, durationInMs, reason) {
 
 async function getGeminiChatResponse(text, username) {
     if (!geminiApiKey) return "Funkce chatu není dostupná, chybí API klíč.";
-    const model = 'gemini-2.0-flash';
-    const prompt = `Jsi AI moderátor na Fortnite, CS2 (csko), Minecraft (spíš dříve), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu umělé inteligenci. /score - Zobrazí tvoje hodnocení (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
+
+    const primaryModel = 'gemini-2.5-flash';
+    const fallbackModel = 'gemini-2.0-flash';
+    const modelsToTry = [primaryModel, fallbackModel];
+
+    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
     const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 150 } };
-    try {
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
-        const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!candidateText) { return "Promiň, ale AI si teď dala pauzu a nemůže odpovědět."; }
-        return candidateText.trim();
-    } catch (error) {
-        console.error(`Chyba při komunikaci s Gemini API (${model}) pro chat:`, error.message);
-        return "Něco se pokazilo a AI nemůže odpovědět.";
+
+    for (const model of modelsToTry) {
+        try {
+            const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`, requestBody);
+            const candidateText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (candidateText) {
+                return candidateText.trim(); // Úspěšná odpověď, vrátíme ji
+            }
+        } catch (error) {
+            console.warn(`Model ${model} selhal. Zkouším další... Důvod: ${error.message}`);
+            // Pokud to byl primární model, pokračujeme na záložní. Pokud selže i záložní, cyklus skončí.
+        }
     }
+
+    // Pokud selžou oba modely
+    console.error(`Chyba při komunikaci s Gemini API: Všechny modely (${modelsToTry.join(', ')}) selhaly.`);
+    return "Něco se pokazilo a AI nemůže odpovědět.";
 }
 
 async function analyzeText(textToAnalyze, context) {
@@ -508,7 +520,6 @@ client.on('interactionCreate', async interaction => {
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
 });
-
 client.on('guildBanAdd', async (ban) => { ratings[ban.user.id] = 0.0; saveRatings(); await updateRoleStatus(ban.user.id, ban.guild, null); try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN, hodnocení resetováno na **0**.`); } catch (err) {} });
 
 client.on('messageCreate', async message => {
