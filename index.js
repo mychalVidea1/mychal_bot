@@ -41,9 +41,8 @@ const allowedGuildId = '875027587477409862';
 
 const activeImageModel = 'gemini-2.5-pro';
 const firstFallbackImageModel = 'gemini-1.5-pro-latest';
-const secondFallbackImageModel = 'gemini-2.5-flash';
 
-const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'negry' ];
+const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'negry', 'Niger', 'negřík' ];
 const level2Words = [ 'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
 const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'píča', 'zkurvysyn', 'dopíči', 'dokundy'];
 
@@ -94,7 +93,7 @@ async function getGeminiChatResponse(text, username) {
     const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash']; // Správné pořadí
 
     const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 110 } };
+    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 100 } };
     let lastError = null;
 
     for (const model of modelsToTry) {
@@ -124,7 +123,7 @@ async function analyzeText(textToAnalyze, context) {
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
     let lastError = null;
     const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Tvá tolerance je vyšší. Ignoruj běžné nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
-    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 5 } };
+    const requestBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 20 } };
 
     for (const model of modelsToTry) {
         try {
@@ -174,7 +173,7 @@ async function checkTenorGif(gifUrl) {
 
 async function analyzeImage(imageUrl) {
     if (!geminiApiKey) return false;
-    const modelsToTry = [activeImageModel, firstFallbackImageModel, secondFallbackImageModel];
+    const modelsToTry = [activeImageModel, firstFallbackImageModel];
     let imageBuffer, mimeType;
     try {
         imageBuffer = (await axios.get(imageUrl, { responseType: 'arraybuffer' })).data;
