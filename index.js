@@ -33,7 +33,7 @@ const MAX_WORDS_FOR_AI = 100;
 const MIN_CHARS_FOR_AI = 4;
 const COOLDOWN_SECONDS = 6;
 const chatCooldowns = new Map();
-const CHAT_COOLDOWN_SECONDS = 15; // Cooldown 15 sekund speciálně pro /chat
+const CHAT_COOLDOWN_SECONDS = 30; // Cooldown 15 sekund speciálně pro /chat
 const NOTIFICATION_COOLDOWN_MINUTES = 10;
 const otherBotPrefixes = ['?', '!', 'db!', 'c!', '*'];
 const emojiSpamRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]|<a?:\w+:\d+>){10,}/;
@@ -45,8 +45,8 @@ const activeImageModel = 'gemini-2.5-pro';
 const firstFallbackImageModel = 'gemini-1.5-pro-latest';
 
 const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'negry', 'Niger', 'negřík' ];
-const level2Words = [ 'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'píčus', 'picus', 'zmrd', 'zmrde', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
-const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'píča', 'zkurvysyn', 'dopíči', 'dokundy'];
+const level2Words = [ 'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
+const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'píča', 'píčus', 'picus', 'zkurvysyn', 'zmrd', 'zmrde', 'dopíči', 'dokundy'];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -89,28 +89,34 @@ async function applyTimeout(member, durationInMs, reason) {
     }
 }
 
-async function getGeminiChatResponse(text, username) {
-    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. \n---\nUživatel "${username}" se ptá: "${text}"\n\nTy:`;
+async function getGeminiChatResponse(text, username, context = "") {
+    // Kontrola vstupu zůstává stejná
+    if (level3Regex.test(text) || level2Regex.test(text)) {
+        return 'FORBIDDEN_CONTENT';
+    }
+
+    // NOVÉ: Dynamicky přidá blok s kontextem, pokud nějaký existuje
+    const contextBlock = context 
+        ? `--- ZDE JE PŘEDCHOZÍ KONVERZACE PRO KONTEXT ---\n${context}\n---------------------------------------------\n` 
+        : '';
+
+    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov.
+${contextBlock} Uživatel "${username}" napsal: "${text}" Ty:`;
     
     try {
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [{ role: "user", parts: [{ text: prompt }] }]
       });
-
-      // Gemini 2.5 má výstup v response.output_text
       return response.text || "AI neposlala žádnou odpověď. 2.5";
 
     } catch (error) {
       console.error("Chyba u 2.5:", error.message);
-
-      // fallback na 2.0-flash
       try {
         const response = await ai.models.generateContent({
           model: "gemini-2.0-flash",
           contents: [{ role: "user", parts: [{ text: prompt }] }]
         });
-
         return response.text || "AI neposlala žádnou odpověď. V2.0";
       } catch (err) {
         if (err.status === 429) {
@@ -470,7 +476,7 @@ client.on('interactionCreate', async interaction => {
     const ownerId = process.env.OWNER_ID;
 
     if (commandName === 'chat') {
-        // --- ZAČÁTEK NOVÉ LOGIKY PRO COOLDOWN ---
+        // --- Logika pro cooldown a limity (beze změny) ---
         const now = Date.now();
         const userCooldown = chatCooldowns.get(interaction.user.id);
         if (userCooldown) {
@@ -480,25 +486,41 @@ client.on('interactionCreate', async interaction => {
             }
         }
         chatCooldowns.set(interaction.user.id, now);
-        // --- KONEC NOVÉ LOGIKY PRO COOLDOWN ---
 
         const userMessage = interaction.options.getString('zpráva');
 
-        if (level3Regex.test(userMessage) || level2Regex.test(userMessage)) {
-            updateRating(interaction.user.id, -1, "Důvod: Pokus o zneužití /chat příkazu");
-            await updateRoleStatus(interaction.user.id, interaction.guild);
-            return interaction.reply({ content: 'Tento příkaz nelze použít s nevhodnými slovy. Tvé hodnocení bylo sníženo.', ephemeral: true });
+        // Limit délky (beze změny)
+        const MAX_CHAT_LENGTH = 200;
+        if (userMessage.length > MAX_CHAT_LENGTH) {
+            return interaction.reply({ content: `Tvoje zpráva je příliš dlouhá! Maximální povolená délka je **${MAX_CHAT_LENGTH} znaků**.`, ephemeral: true });
         }
 
         await interaction.deferReply();
-        
-        const aiResponse = await getGeminiChatResponse(userMessage, interaction.user.username);
+
+        // NOVÉ: Načtení a formátování kontextu z kanálu
+        const lastMessages = await interaction.channel.messages.fetch({ limit: 5 });
+        const context = lastMessages
+            .filter(m => !m.author.bot && m.content) // Ignoruje boty a zprávy bez textu
+            .map(m => `${m.author.username}: ${m.content}`) // Formátuje "Uživatel: Zpráva"
+            .reverse() // Seřadí od nejstarší po nejnovější
+            .join('\n'); // Spojí do jednoho řetězce
+
+        // Volání funkce s novým parametrem 'context'
+        const aiResponse = await getGeminiChatResponse(userMessage, interaction.user.username, context);
+
+        // Zpracování odpovědi (beze změny, teď už používá vnitřní kontrolu funkce)
+        if (aiResponse === 'FORBIDDEN_CONTENT') {
+            updateRating(interaction.user.id, -1, "Důvod: Pokus o zneužití /chat příkazu");
+            await updateRoleStatus(interaction.user.id, interaction.guild);
+            return interaction.editReply({ content: 'Tento příkaz nelze použít s nevhodnými slovy. Tvé hodnocení bylo sníženo.' });
+        }
 
         if (level3Regex.test(aiResponse) || level2Regex.test(aiResponse)) {
             console.error(`[AI Safety] AI se pokusila vygenerovat nevhodnou odpověď: "${aiResponse}"`);
             return interaction.editReply({ content: 'AI se pokusila odpovědět, ale její odpověď byla z bezpečnostních důvodů zablokována.' });
         }
 
+        // Odeslání odpovědi (beze změny)
         const embed = new EmbedBuilder().setColor('#5865F2').setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() }).setDescription(userMessage);
         await interaction.editReply({ embeds: [embed] });
         return interaction.followUp({ content: aiResponse });
@@ -546,7 +568,6 @@ client.on('interactionCreate', async interaction => {
         const scoreMsg = isSelfCheck ? `🌟 Tvé hodnocení je: **\`${userRating.toFixed(2)} / 10\`**` : `🌟 Hodnocení <@${targetUser.id}> je: **\`${userRating.toFixed(2)} / 10\`**`;
         await interaction.editReply({ content: scoreMsg });
     }
-
     if (commandName === 'scoreboard') {
         await interaction.deferReply();
         const userIds = Object.keys(ratings);
@@ -570,7 +591,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.editReply({ embeds: [scoreEmbed] });
     }
 });
-
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
 });
