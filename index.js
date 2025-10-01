@@ -441,9 +441,9 @@ client.on('guildCreate', guild => { if (guild.id !== allowedGuildId) { console.l
 client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.reply({ content: 'K této akci nemáš oprávnění.', ephemeral: true });
+            return interaction.reply({ content: 'K této akci nemáš oprávnění.', flags: MessageFlags.Ephemeral });
         }
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const [action, , authorId] = interaction.customId.split('-');
         const logMessage = await interaction.channel.messages.fetch(interaction.message.id).catch(() => null);
         if (action === 'approve') {
@@ -479,7 +479,7 @@ client.on('interactionCreate', async interaction => {
         if (userCooldown) {
             const timeLeft = (userCooldown + CHAT_COOLDOWN_SECONDS * 1000 - now) / 1000;
             if (timeLeft > 0) {
-                return interaction.reply({ content: `S AI můžeš chatovat znovu za **${timeLeft.toFixed(1)}s**.`, ephemeral: true });
+                return interaction.reply({ content: `S AI můžeš chatovat znovu za **${timeLeft.toFixed(1)}s**.`, flags: MessageFlags.Ephemeral });
             }
         }
         chatCooldowns.set(interaction.user.id, now);
@@ -487,7 +487,7 @@ client.on('interactionCreate', async interaction => {
 
         const MAX_CHAT_LENGTH = 200;
         if (userMessage.length > MAX_CHAT_LENGTH) {
-            return interaction.reply({ content: `Tvoje zpráva je příliš dlouhá! Maximální povolená délka je **${MAX_CHAT_LENGTH} znaků**.`, ephemeral: true });
+            return interaction.reply({ content: `Tvoje zpráva je příliš dlouhá! Maximální povolená délka je **${MAX_CHAT_LENGTH} znaků**.`, flags: MessageFlags.Ephemeral });
         }
 
         await interaction.deferReply();
@@ -518,15 +518,15 @@ client.on('interactionCreate', async interaction => {
     }
     
     if (commandName === 'list-servers' || commandName === 'leave-server') {
-        if (interaction.user.id !== ownerId) { return interaction.reply({ content: 'Tento příkaz může použít pouze majitel bota.', ephemeral: true }); }
-        await interaction.deferReply({ ephemeral: true });
+        if (interaction.user.id !== ownerId) { return interaction.reply({ content: 'Tento příkaz může použít pouze majitel bota.', flags: MessageFlags.Ephemeral }); }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         if (commandName === 'list-servers') { const guilds = client.guilds.cache.map(guild => `${guild.name} (ID: ${guild.id})`).join('\n'); const content = `Bot je na ${client.guilds.cache.size} serverech:\n\n${guilds}`; if (content.length > 2000) { const buffer = Buffer.from(content, 'utf-8'); return interaction.editReply({ files: [{ attachment: buffer, name: 'server-list.txt' }] }); } return interaction.editReply({ content }); }
         if (commandName === 'leave-server') { const guildId = interaction.options.getString('id'); const guild = client.guilds.cache.get(guildId); if (!guild) { return interaction.editReply({ content: `Chyba: Bot není na serveru s ID \`${guildId}\`.` }); } try { await guild.leave(); return interaction.editReply({ content: `✅ Úspěšně jsem opustil server **${guild.name}**.` }); } catch (err) { return interaction.editReply({ content: `❌ Nepodařilo se opustit server. Důvod: ${err.message}` }); } }
     }
 
     if (commandName === 'resetscoreboard') {
-        if (!interaction.member.roles.cache.has(ownerRoleId)) { return interaction.reply({ content: 'K tomuto příkazu má přístup pouze majitel serveru.', ephemeral: true }); }
-        await interaction.deferReply({ ephemeral: true });
+        if (!interaction.member.roles.cache.has(ownerRoleId)) { return interaction.reply({ content: 'K tomuto příkazu má přístup pouze majitel serveru.', flags: MessageFlags.Ephemeral }); }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         ratings = {};
         messageCounts = {};
         saveRatings();
@@ -535,7 +535,7 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (commandName === 'rate') {
-        if (!interaction.member.roles.cache.has(ownerRoleId)) { return interaction.reply({ content: 'K tomuto příkazu má přístup pouze majitel serveru.', ephemeral: true }); }
+        if (!interaction.member.roles.cache.has(ownerRoleId)) { return interaction.reply({ content: 'K tomuto příkazu má přístup pouze majitel serveru.', flags: MessageFlags.Ephemeral }); }
         await interaction.deferReply();
         const user = interaction.options.getUser('uživatel');
         const ratingInput = interaction.options.getNumber('hodnocení');
