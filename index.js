@@ -128,7 +128,7 @@ async function analyzeText(textToAnalyze, context) {
     if (!geminiApiKey) return false;
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
     let lastError = null;
-    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Tvá tolerance je vyšší. Ignoruj běžné nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
+    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Ignoruj běžné nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování, rasizmus (jakákoliv forma nwordu) nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
     
     const contents = [{ role: "user", parts: [{ text: prompt }] }];
     const generationConfig = { maxOutputTokens: 20 };
