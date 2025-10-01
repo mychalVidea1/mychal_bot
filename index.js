@@ -90,40 +90,37 @@ async function applyTimeout(member, durationInMs, reason) {
 }
 
 async function getGeminiChatResponse(text, username, context = "") {
-    // Kontrola vstupu zůstává stejná
     if (level3Regex.test(text) || level2Regex.test(text)) {
         return 'FORBIDDEN_CONTENT';
     }
 
-    // NOVÉ: Dynamicky přidá blok s kontextem, pokud nějaký existuje
     const contextBlock = context 
         ? `--- ZDE JE PŘEDCHOZÍ KONVERZACE PRO KONTEXT ---\n${context}\n---------------------------------------------\n` 
         : '';
 
-    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" a mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficialni nick) a dále máš nick kazdeho uzivatele tak si s tím taky pohraj klidně i pošťouchni. Tady máš nějaký příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu tobě. /score - Zobrazí hodnocení jak se kdo chová (nebo hodnocení jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk. Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov.
-${contextBlock} Uživatel "${username}" napsal: "${text}" Ty:`;
+    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a těšíme se na 6 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" (když ti napíše mychal tak ho musíš uctívat), mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficiální nick) a dále máš nick každého uživatele tak si s tím pohraj klidně i pošťouchni. Příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu AI. /score - Zobrazí hodnocení chování (nebo hodnocení chování jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk (ale ty jako bot nemůžeš hrát hry). Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. ${contextBlock} Uživatel "${username}" napsal: "${text}" Ty:`;
     
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }]
-      });
-      return response.text || "AI neposlala žádnou odpověď. 2.5";
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: [{ role: "user", parts: [{ text: prompt }] }]
+        });
+        return response.text || "AI neposlala žádnou odpověď. 2.5";
 
     } catch (error) {
-      console.error("Chyba u 2.5:", error.message);
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-2.0-flash",
-          contents: [{ role: "user", parts: [{ text: prompt }] }]
-        });
-        return response.text || "AI neposlala žádnou odpověď. V2.0";
-      } catch (err) {
-        if (err.status === 429) {
-          return "Vyčerpal jsi dnešní free limit pro AI. Zkus to zase zítra 🍀";
+        console.error("Chyba u 2.5:", error.message);
+        try {
+            const response = await ai.models.generateContent({
+                model: "gemini-2.0-flash",
+                contents: [{ role: "user", parts: [{ text: prompt }] }]
+            });
+            return response.text || "AI neposlala žádnou odpověď. V2.0";
+        } catch (err) {
+            if (err.status === 429) {
+                return "Vyčerpal jsi dnešní free limit pro AI. Zkus to zase zítra 🍀";
+            }
+            return "Něco se pokazilo a AI nemůže odpovědět.";
         }
-        return "Něco se pokazilo a AI nemůže odpovědět.";
-      }
     }
 }
 
@@ -425,7 +422,8 @@ client.once('clientReady', async () => {
         const guildId = process.env.GUILD_ID;
         if (!clientId || !guildId) { throw new Error("CLIENT_ID nebo GUILD_ID není nastaveno v .env souboru!"); }
         await rest.put(Routes.applicationCommands(clientId), { body: commands });
-        console.log('Úspěšně obnoveny aplikační příkazy pro server.');
+        await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] })
+        console.log('Úspěšně obnoveny aplikační příkazy.');
     } catch (error) { console.error('Chyba při registraci (/) příkazů:', error); }
     try {
         const channel = await client.channels.fetch(startupChannelId);
@@ -476,7 +474,6 @@ client.on('interactionCreate', async interaction => {
     const ownerId = process.env.OWNER_ID;
 
     if (commandName === 'chat') {
-        // --- Logika pro cooldown a limity (beze změny) ---
         const now = Date.now();
         const userCooldown = chatCooldowns.get(interaction.user.id);
         if (userCooldown) {
@@ -486,10 +483,8 @@ client.on('interactionCreate', async interaction => {
             }
         }
         chatCooldowns.set(interaction.user.id, now);
-
         const userMessage = interaction.options.getString('zpráva');
 
-        // Limit délky (beze změny)
         const MAX_CHAT_LENGTH = 200;
         if (userMessage.length > MAX_CHAT_LENGTH) {
             return interaction.reply({ content: `Tvoje zpráva je příliš dlouhá! Maximální povolená délka je **${MAX_CHAT_LENGTH} znaků**.`, ephemeral: true });
@@ -497,18 +492,15 @@ client.on('interactionCreate', async interaction => {
 
         await interaction.deferReply();
 
-        // NOVÉ: Načtení a formátování kontextu z kanálu
-        const lastMessages = await interaction.channel.messages.fetch({ limit: 8 });
+        const lastMessages = await interaction.channel.messages.fetch({ limit: 10 });
         const context = lastMessages
-            .filter(m => !m.author.bot && m.content) // Ignoruje boty a zprávy bez textu
-            .map(m => `${m.author.username}: ${m.content}`) // Formátuje "Uživatel: Zpráva"
-            .reverse() // Seřadí od nejstarší po nejnovější
-            .join('\n'); // Spojí do jednoho řetězce
+            .filter(m => !m.author.bot && m.content)
+            .map(m => `${m.author.username}: ${m.content}`)
+            .reverse()
+            .join('\n');
 
-        // Volání funkce s novým parametrem 'context'
         const aiResponse = await getGeminiChatResponse(userMessage, interaction.user.username, context);
 
-        // Zpracování odpovědi (beze změny, teď už používá vnitřní kontrolu funkce)
         if (aiResponse === 'FORBIDDEN_CONTENT') {
             updateRating(interaction.user.id, -1, "Důvod: Pokus o zneužití /chat příkazu");
             await updateRoleStatus(interaction.user.id, interaction.guild);
@@ -520,7 +512,6 @@ client.on('interactionCreate', async interaction => {
             return interaction.editReply({ content: 'AI se pokusila odpovědět, ale její odpověď byla z bezpečnostních důvodů zablokována.' });
         }
 
-        // Odeslání odpovědi (beze změny)
         const embed = new EmbedBuilder().setColor('#5865F2').setAuthor({ name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() }).setDescription(userMessage);
         await interaction.editReply({ embeds: [embed] });
         return interaction.followUp({ content: aiResponse });
@@ -591,9 +582,11 @@ client.on('interactionCreate', async interaction => {
         await interaction.editReply({ embeds: [scoreEmbed] });
     }
 });
+
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
     if (newMember.roles.cache.has(ownerRoleId)) return;
 });
+
 client.on('guildBanAdd', async (ban) => { ratings[ban.user.id] = 0.0; saveRatings(); await updateRoleStatus(ban.user.id, ban.guild, null); try { const channel = await client.channels.fetch(logChannelId); if (channel) channel.send(`Uživatel **${ban.user.tag}** dostal BAN, hodnocení resetováno na **0**.`); } catch (err) {} });
 
 client.on('messageCreate', async message => {
@@ -611,9 +604,11 @@ client.on('messageCreate', async message => {
         saveMessageCounts();
     }
 });
+
 client.on('messageUpdate', async (oldMessage, newMessage) => {
     if (newMessage.partial) { try { await newMessage.fetch(); } catch { return; } }
     if (newMessage.author.bot || !newMessage.guild || oldMessage.content === newMessage.content) return;
     await moderateMessage(newMessage);
 });
+
 client.login(process.env.BOT_TOKEN);
