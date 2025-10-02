@@ -45,7 +45,7 @@ const firstFallbackImageModel = 'gemini-1.5-pro-latest';
 
 const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'negry', 'Niger', 'negřík' ];
 const level2Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'píča', 'píčus', 'picus', 'zkurvysyn', 'zmrd', 'zmrde', 'dopíči', 'dokundy', 'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
-const level1Words = [ 'vole'];
+const level1Words = [ 'vole', 'kokot', 'kokote'];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -109,7 +109,7 @@ async function getGeminiChatResponse(text, username, context = "") {
             model,
             contents: [{ role: "user", parts: [{ text: prompt }] }]
         });
-        console.log(model, username, text, response)
+        console.log("Model: ", model," Od: ", username," Napsal: ", text)
         return response.text || `AI selhala. (${model})`;
 
     } catch (error) {
@@ -131,7 +131,6 @@ async function getGeminiChatResponse(text, username, context = "") {
         }
     }
 }
-
 
 async function analyzeText(textToAnalyze, context) {
     if (!geminiApiKey) return false;
@@ -375,7 +374,7 @@ async function moderateMessage(message) {
         return true;
     }
     if (level1Regex.test(textToAnalyze)) {
-        try { const warningReply = await message.reply(`Slovník prosím. 🤫`); setTimeout(() => warningReply.delete().catch(() => {}), 10000); } catch (err) {}
+        try { const warningReply = await message.reply(`Slovník prosím. 🤫`);} catch (err) {}
         return true;
     }
     if (emojiSpamRegex.test(textToAnalyze)) {
