@@ -518,27 +518,27 @@ client.on('interactionCreate', async interaction => {
     const ownerId = process.env.OWNER_ID;
 
     if (commandName === 'svatek') {
-    await interaction.deferReply();
-    const svatky = await getNamenstagInfo();
+        await interaction.deferReply();
+        const svatky = await getNamenstagInfo();
 
-    if (!svatky) {
-        return interaction.editReply({ content: 'Bohužel se nepodařilo načíst informace o svátcích. Zkus to prosím později.' });
-    }
+        if (!svatky) {
+            return interaction.editReply({ content: 'Bohužel se nepodařilo načíst informace o svátcích. Zkus to prosím později.' });
+        }
 
-    // Získáme a naformátujeme aktuální datum
-    const today = new Date();
-    const formattedDate = `${today.getDate()}. ${today.getMonth() + 1}. ${today.getFullYear()}`;
+        const today = new Date();
+        const formattedDate = `${today.getDate()}. ${today.getMonth() + 1}. ${today.getFullYear()}`;
 
-    const svatekEmbed = new EmbedBuilder()
-        .setColor('#2b2d31') // Tmavá barva, podobná Discordu
-        .setTitle(`🗓️ Dnes je ${formattedDate} 🌹`)
-        .addFields(
-            // Pole pro Česko
+        const svatekEmbed = new EmbedBuilder()
+            .setColor('#ED4245') // Výrazná červená barva, jakou má Discord
+            .setTitle(`💐 Dnes je ${formattedDate} 🌹`)
+            .addFields(
                 { name: '🇨🇿 Česká republika', value: `\`\`\`${svatky.cz}\`\`\``, inline: true },
-                // Pole pro Slovensko
                 { name: '🇸🇰 Slovensko', value: `\`\`\`${svatky.sk}\`\`\``, inline: true }
-        )
-        .setFooter({ text: '🗓️ Přejeme vše nejlepší!' });
+            )
+            .setFooter({ 
+                text: 'Přejeme vše nejlepší!', 
+                iconURL: client.user.displayAvatarURL() // Tímto získáme URL avataru bota
+            });
 
         return interaction.editReply({ embeds: [svatekEmbed] });
     }
