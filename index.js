@@ -262,6 +262,29 @@ async function analyzeImage(imageUrl) {
     return 'FILTERED';
 }
 
+async function getNamenstagInfo() {
+    try {
+        const czApiUrl = 'https://svatkyapi.cz/api/day';
+        const skApiUrl = 'https://svatkyapi.cz/api/day/sk';
+
+        // Použijeme Promise.all, abychom zavolali obě API zároveň a zrychlili odpověď
+        const [czResponse, skResponse] = await Promise.all([
+            axios.get(czApiUrl),
+            axios.get(skApiUrl)
+        ]);
+
+        // Z odpovědi si vytáhneme jméno. API vrací pole, takže bereme první prvek.
+        const czName = czResponse.data[0]?.name || 'Neznámý';
+        const skName = skResponse.data[0]?.name || 'Neznámy';
+
+        return { cz: czName, sk: skName };
+
+    } catch (error) {
+        console.error("Chyba při získávání informací o svátcích:", error.message);
+        return null; // V případě chyby vrátíme null
+    }
+}
+
 async function moderateMessage(message) {
     if (!message.guild || !message.author || message.author.bot) return false;
     const member = message.member;
@@ -420,13 +443,14 @@ client.once('clientReady', async () => {
         console.log('Započato obnovování aplikačních (/) příkazů pro server.');
         const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
         const commands = [
-            new SlashCommandBuilder().setName('rate').setDescription('Ohodnotí uživatele (pouze pro majitele).').addUserOption(option => option.setName('uživatel').setDescription('Uživatel, kterého chceš ohodnotit.').setRequired(true)).addNumberOption(option => option.setName('hodnocení').setDescription('Číslo od 0 do 10.').setRequired(true).setMinValue(0).setMaxValue(10)).setDMPermission(false),
+            new SlashCommandBuilder().setName('chat').setDescription('Pošle zprávu AI.').addStringOption(option => option.setName('zpráva').setDescription('Text pro AI.').setRequired(true)).setDMPermission(false),
             new SlashCommandBuilder().setName('score').setDescription('Zobrazí tvé hodnocení nebo hodnocení jiného uživatele.').addUserOption(option => option.setName('uživatel').setDescription('Uživatel, jehož skóre chceš vidět.').setRequired(false)).setDMPermission(false),
             new SlashCommandBuilder().setName('scoreboard').setDescription('Zobrazí síň slávy - žebříček všech uživatelů.').setDMPermission(false),
+            new SlashCommandBuilder().setName('svatek').setDescription('Zobrazí, kdo má dnes svátek v Česku a na Slovensku.').setDMPermission(false),
+            new SlashCommandBuilder().setName('rate').setDescription('Ohodnotí uživatele (pouze pro majitele).').addUserOption(option => option.setName('uživatel').setDescription('Uživatel, kterého chceš ohodnotit.').setRequired(true)).addNumberOption(option => option.setName('hodnocení').setDescription('Číslo od 0 do 10.').setRequired(true).setMinValue(0).setMaxValue(10)).setDMPermission(false),
             new SlashCommandBuilder().setName('resetscoreboard').setDescription('Smaže všechna data hodnocení (pouze pro majitele).').setDMPermission(false),
             new SlashCommandBuilder().setName('list-servers').setDescription('Vypíše seznam serverů, kde se bot nachází (pouze pro majitele).').setDMPermission(false),
             new SlashCommandBuilder().setName('leave-server').setDescription('Přinutí bota opustit server podle ID (pouze pro majitele).').addStringOption(option => option.setName('id').setDescription('ID serveru, který má bot opustit.').setRequired(true)).setDMPermission(false),
-            new SlashCommandBuilder().setName('chat').setDescription('Pošle zprávu AI.').addStringOption(option => option.setName('zpráva').setDescription('Text pro AI.').setRequired(true)).setDMPermission(false),
         ].map(command => command.toJSON());
         const clientId = process.env.CLIENT_ID;
         const guildId = process.env.GUILD_ID;
@@ -482,6 +506,27 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
     const ownerId = process.env.OWNER_ID;
+
+    if (commandName === 'svatek') {
+        await interaction.deferReply();
+        const svatky = await getNamenstagInfo();
+        
+        if (!svatky) {
+            return interaction.editReply({ content: 'Bohužel se nepodařilo načíst informace o svátcích. Zkus to prosím později.' });
+        }
+    
+        const svatekEmbed = new EmbedBuilder()
+            .setColor('#FFD700') // Zlatá barva
+            .setTitle('🗓️ Kdo má dnes svátek?')
+            .addFields(
+                { name: '🇨🇿 Česko', value: `**${svatky.cz}**`, inline: true },
+                { name: '🇸🇰 Slovensko', value: `**${svatky.sk}**`, inline: true }
+            )
+            .setTimestamp()
+            .setFooter({ text: 'Všechno nejlepší!' });
+        
+        return interaction.editReply({ embeds: [svatekEmbed] });
+    }
 
     if (commandName === 'chat') {
         const now = Date.now();
