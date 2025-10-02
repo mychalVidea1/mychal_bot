@@ -101,7 +101,6 @@ async function getGeminiChatResponse(text, username, context = "") {
 
     const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a těšíme se na 6 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" - jenom takhle zadna jina forma! (když ti napíše mychal tak musíš být formální a upřímný), mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficiální nick) a dále máš nick každého uživatele tak si s tím pohraj klidně i pošťouchni. Příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu AI. /score - Zobrazí hodnocení chování (nebo hodnocení chování jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk (ale ty jako bot nemůžeš hrát hry). Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. ${contextBlock} Uživatel "${username}" napsal: "${text}" Ty:`;
 
-    // vyber model podle globálního přepínače
     const model = useModel20 ? "gemini-2.0-flash" : "gemini-2.5-flash";
     useModel20 = !useModel20; // otočíme pro příště
 
@@ -262,29 +261,24 @@ async function analyzeImage(imageUrl) {
     return 'FILTERED';
 }
 
-async function getNamenstagInfo() {
+async function getNamenstagInfoAlternative() {
     try {
-        const czApiUrl = 'https://svatkyapi.cz/api/day';
-        const skApiUrl = 'https://svatkyapi.cz/api/day/sk';
-
-        // Definujeme si hlavičku, která napodobí prohlížeč
-        const requestHeaders = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        };
+        // Dnes pro CZ a SK
+        const czApiUrl = 'https://nameday.abalin.net/api/V1/today?country=cz';
+        const skApiUrl = 'https://nameday.abalin.net/api/V1/today?country=sk';
 
         const [czResponse, skResponse] = await Promise.all([
-            // Přidáme hlavičku jako druhý argument do axios.get
-            axios.get(czApiUrl, { headers: requestHeaders }),
-            axios.get(skApiUrl, { headers: requestHeaders })
+            axios.get(czApiUrl),
+            axios.get(skApiUrl)
         ]);
 
-        const czName = czResponse.data[0]?.name || 'Neznámý';
-        const skName = skResponse.data[0]?.name || 'Neznámy';
+        const czName = czResponse.data.nameday.cz || 'Neznámý';
+        const skName = skResponse.data.nameday.sk || 'Neznámy';
 
         return { cz: czName, sk: skName };
 
     } catch (error) {
-        console.error("Chyba při získávání informací o svátcích:", error.message);
+        console.error("Chyba při získávání informací o svátcích (alternativní API):", error.message);
         return null;
     }
 }
