@@ -89,6 +89,8 @@ async function applyTimeout(member, durationInMs, reason) {
     }
 }
 
+let useModel20 = true; // globální přepínač
+
 async function getGeminiChatResponse(text, username, context = "") {
     if (level3Regex.test(text) || level2Regex.test(text)) {
         return 'FORBIDDEN_CONTENT';
@@ -99,22 +101,30 @@ async function getGeminiChatResponse(text, username, context = "") {
         : '';
 
     const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a těšíme se na 6 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" (když ti napíše mychal tak ho musíš uctívat), mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficiální nick) a dále máš nick každého uživatele tak si s tím pohraj klidně i pošťouchni. Příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu AI. /score - Zobrazí hodnocení chování (nebo hodnocení chování jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk (ale ty jako bot nemůžeš hrát hry). Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. ${contextBlock} Uživatel "${username}" napsal: "${text}" Ty:`;
-    
+
+    // vyber model podle globálního přepínače
+    const model = useModel20 ? "gemini-2.0-flash" : "gemini-2.5-flash";
+    useModel20 = !useModel20; // otočíme pro příště
+
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+            model,
             contents: [{ role: "user", parts: [{ text: prompt }] }]
         });
-        return response.text || "AI neposlala žádnou odpověď. 2.5";
+        console.log(model, username, text, response)
+        return response.text || `AI neposlala žádnou odpověď. (${model})`;
 
     } catch (error) {
-        console.error("Chyba u 2.5:", error.message);
+        console.error(`Chyba u ${model}:`, error.message);
+
+        // fallback na druhý model
+        const fallbackModel = model === "gemini-2.0-flash" ? "gemini-2.5-flash" : "gemini-2.0-flash";
         try {
             const response = await ai.models.generateContent({
-                model: "gemini-2.0-flash",
+                model: fallbackModel,
                 contents: [{ role: "user", parts: [{ text: prompt }] }]
             });
-            return response.text || "AI neposlala žádnou odpověď. V2.0";
+            return response.text || `AI neposlala žádnou odpověď. (${fallbackModel})`;
         } catch (err) {
             if (err.status === 429) {
                 return "Vyčerpal jsi dnešní free limit pro AI. Zkus to zase zítra 🍀";
@@ -123,6 +133,7 @@ async function getGeminiChatResponse(text, username, context = "") {
         }
     }
 }
+
 
 async function analyzeText(textToAnalyze, context) {
     if (!geminiApiKey) return false;
@@ -489,7 +500,6 @@ client.on('interactionCreate', async interaction => {
         if (userMessage.length > MAX_CHAT_LENGTH) {
             return interaction.reply({ content: `Tvoje zpráva je příliš dlouhá! Maximální povolená délka je **${MAX_CHAT_LENGTH} znaků**.`, flags: MessageFlags.Ephemeral });
         }
-
         await interaction.deferReply();
 
         const lastMessages = await interaction.channel.messages.fetch({ limit: 10 });
