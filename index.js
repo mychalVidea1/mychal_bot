@@ -267,13 +267,17 @@ async function getNamenstagInfo() {
         const czApiUrl = 'https://svatkyapi.cz/api/day';
         const skApiUrl = 'https://svatkyapi.cz/api/day/sk';
 
-        // Použijeme Promise.all, abychom zavolali obě API zároveň a zrychlili odpověď
+        // Definujeme si hlavičku, která napodobí prohlížeč
+        const requestHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        };
+
         const [czResponse, skResponse] = await Promise.all([
-            axios.get(czApiUrl),
-            axios.get(skApiUrl)
+            // Přidáme hlavičku jako druhý argument do axios.get
+            axios.get(czApiUrl, { headers: requestHeaders }),
+            axios.get(skApiUrl, { headers: requestHeaders })
         ]);
 
-        // Z odpovědi si vytáhneme jméno. API vrací pole, takže bereme první prvek.
         const czName = czResponse.data[0]?.name || 'Neznámý';
         const skName = skResponse.data[0]?.name || 'Neznámy';
 
@@ -281,7 +285,7 @@ async function getNamenstagInfo() {
 
     } catch (error) {
         console.error("Chyba při získávání informací o svátcích:", error.message);
-        return null; // V případě chyby vrátíme null
+        return null;
     }
 }
 
