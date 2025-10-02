@@ -44,8 +44,8 @@ const activeImageModel = 'gemini-2.5-pro';
 const firstFallbackImageModel = 'gemini-1.5-pro-latest';
 
 const level3Words = [ 'nigga', 'n1gga', 'n*gga', 'niggas', 'nigger', 'n1gger', 'n*gger', 'niggers', 'niga', 'n1ga', 'nygga', 'niggar', 'negr', 'ne*r', 'n*gr', 'n3gr', 'neger', 'negri', 'negry', 'Niger', 'negřík' ];
-const level2Words = [ 'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
-const level1Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'píča', 'píčus', 'picus', 'zkurvysyn', 'zmrd', 'zmrde', 'dopíči', 'dokundy'];
+const level2Words = [ 'kretén', 'sračka', 'píčo', 'pičo', 'fakin', 'píča', 'píčus', 'picus', 'zkurvysyn', 'zmrd', 'zmrde', 'dopíči', 'dokundy', 'kundo', 'kundy', 'čuráku', 'curaku', 'čůráku', 'mrdko', 'buzerant', 'buzna', 'kurva', 'kurvo', 'kurvy', 'čurák', 'curak', 'šukat', 'mrdat', 'bitch', 'b*tch', 'whore', 'slut', 'faggot', 'motherfucker', 'asshole', 'assh*le', 'bastard', 'cunt', 'c*nt', 'dickhead', 'dick', 'pussy', 'fuck', 'f*ck', 'fck', 'kys', 'kill yourself', 'go kill yourself', 'zabij se', 'fuk', 'hitler' ];
+const level1Words = [ 'vole'];
 
 const level3Regex = new RegExp(`\\b(${level3Words.join('|')})\\b`, 'i');
 const level2Regex = new RegExp(`\\b(${level2Words.join('|')})\\b`, 'i');
@@ -99,10 +99,10 @@ async function getGeminiChatResponse(text, username, context = "") {
         ? `--- ZDE JE PŘEDCHOZÍ KONVERZACE PRO KONTEXT ---\n${context}\n---------------------------------------------\n` 
         : '';
 
-    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a těšíme se na 6 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" - jenom takhle zadna jina forma! (když ti napíše mychal tak musíš být formální a upřímný), mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficiální nick) a dále máš nick každého uživatele tak si s tím pohraj klidně i pošťouchni. Příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu AI. /score - Zobrazí hodnocení chování (nebo hodnocení chování jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů." Tvým úkolem je bavit se s uživateli jako člověk (ale ty jako bot nemůžeš hrát hry). Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. ${contextBlock} Uživatel "${username}" napsal: "${text}" Ty:`;
+    const prompt = `Jsi AI moderátor na Fortnite (většina), CS2 (csko), Minecraft (už moc ne), *občas* dáme Forzu Horizon (4 nebo 5, jen vzácně 3 a těšíme se na 6 a ještě zkousneme Roblox, ale Valorant a League of Legends tady nemame radi) discord serveru streamera / youtubera "mychalVidea" na discordu pod nickem "@mychalvidea" - jenom takhle zadna jina forma! (když ti napíše mychal tak musíš být formální a upřímný), mychal má support-a-creator (sac) kód "mychal", lidi tě nazývají "bot" (jako robot) nebo "🍀 SAC MYCHAL 🍀" (tvuj oficiální nick) a dále máš nick každého uživatele tak si s tím pohraj klidně i pošťouchni. Příkazy které můžou členové zadat, kdyby se někdo ptal: "/chat - Pošle zprávu AI. /score - Zobrazí hodnocení chování (nebo hodnocení chování jiného uživatele). /scoreboard - Ukáže žebříček nejlépe hodnocených uživatelů. /svatek - Ukáže kdo má dneska svátek." Tvým úkolem je bavit se s uživateli jako člověk (ale ty jako bot nemůžeš hrát hry). Žádný rasizmus a nenávistný projev a zkus omezit vyšší toxicitu (lehčí trash talk je povolen). Odpověz na následující zprávu stručně, vtipně a neformálně. Tvoje odpověď musí mít maximálně 50 slov. ${contextBlock} Uživatel "${username}" napsal: "${text}" Ty:`;
 
     const model = useModel20 ? "gemini-2.0-flash" : "gemini-2.5-flash";
-    useModel20 = !useModel20; // otočíme pro příště
+    useModel20 = !useModel20;
 
     try {
         const response = await ai.models.generateContent({
@@ -110,7 +110,7 @@ async function getGeminiChatResponse(text, username, context = "") {
             contents: [{ role: "user", parts: [{ text: prompt }] }]
         });
         console.log(model, username, text, response)
-        return response.text || `AI neposlala žádnou odpověď. (${model})`;
+        return response.text || `AI selhala. (${model})`;
 
     } catch (error) {
         console.error(`Chyba u ${model}:`, error.message);
@@ -137,10 +137,10 @@ async function analyzeText(textToAnalyze, context) {
     if (!geminiApiKey) return false;
     const modelsToTry = ['gemini-2.5-flash-lite', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
     let lastError = null;
-    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Ignoruj běžné nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování, rasizmus (jakákoliv forma nwordu) nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
+    const prompt = `Jsi AI moderátor pro neformální, herní Discord server. Tvým úkolem je odhalit zprávy, které jsou *opravdu* škodlivé. Ignoruj běžné lehčí nadávky, "trash talk" a vtipy. Zasáhni POUZE pokud zpráva obsahuje přímý nenávistný projev, vážné vyhrožování, rasizmus (jakákoliv forma nwordu) nebo cílenou šikanu.\n---\nZDE JE KONTEXT PŘEDCHOZÍ KONVERZACE:\n${context || "Žádný kontext není k dispozici."}\n---\nNYNÍ POSUĎ POUZE TUTO NOVOU ZPRÁVU. JE TATO NOVÁ ZPRÁVA S OHLEDEM NA KONTEXT ZÁVAŽNÝM PORUŠENÍM PRAVIDEL?\nNová zpráva: "${textToAnalyze}"\n\nOdpověz jen "ANO" nebo "NE".`;
     
     const contents = [{ role: "user", parts: [{ text: prompt }] }];
-    const generationConfig = { maxOutputTokens: 20 };
+    const generationConfig = { maxOutputTokens: 15 };
 
     for (const model of modelsToTry) {
         try {
