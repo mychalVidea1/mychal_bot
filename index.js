@@ -263,28 +263,37 @@ async function analyzeImage(imageUrl) {
 
 async function getNamenstagInfo() {
     try {
-        // Přesně podle tvého posledního objevu.
-        // Uděláme jeden jediný, efektivní dotaz na českou časovou zónu.
-        const apiUrl = 'https://nameday.abalin.net/api/V2/today/cz';
+        // 1. ZDROJ PRO ČESKO: svatkyapi.cz (má kompletní data, např. "Olívie a Oliver")
+        const czApiUrl = 'https://svatkyapi.cz/api/day';
 
-        const response = await axios.get(apiUrl);
+        // 2. ZDROJ PRO SLOVENSKO: abalin.net (spolehlivé a dobře zdokumentované API)
+        const skApiUrl = 'https://nameday.abalin.net/api/V2/today/cz'; // /cz nebo /sk je jedno, data pro SK tam budou vždy
 
-        // Data, která chceme, jsou vnořená v response.data.data
-        const namedayData = response.data?.data;
+        // User-Agent hlavička je důležitá pro svatkyapi.cz, pro jistotu ji dáme oběma
+        const requestHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        };
 
-        // Z jedné odpovědi si vezmeme data pro Česko i Slovensko.
-        const czName = namedayData?.cz || 'Neznámý';
-        const skName = namedayData?.sk || 'Neznámy';
+        const [czResponse, skResponse] = await Promise.all([
+            axios.get(czApiUrl, { headers: requestHeaders }),
+            axios.get(skApiUrl, { headers: requestHeaders }) // abalin.net ji nepotřebuje, ale nevadí mu
+        ]);
+
+        // Zpracování odpovědi pro Česko (jméno je v 'name')
+        const czName = czResponse.data?.name || 'Neznámý';
+        
+        // Zpracování odpovědi pro Slovensko (jméno je vnořené v 'data.sk')
+        const skName = skResponse.data?.data?.sk || 'Neznámy';
 
         return { cz: czName, sk: skName };
 
     } catch (error) {
         if (error.response) {
-            console.error("Chyba při volání finálního abalin.net V2 API!");
-            console.error("Status:", error.response.status);
+            console.error("Chyba při volání finálních API!");
+            console.error("Status:", error.response.status, "URL:", error.config.url);
             console.error("Data:", error.response.data);
         } else {
-            console.error("Došlo k chybě při komunikaci s finálním abalin.net V2 API:", error.message);
+            console.error("Došlo k chybě při komunikaci s finálními API:", error.message);
         }
         return null;
     }
