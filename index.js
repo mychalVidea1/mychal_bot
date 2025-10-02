@@ -523,30 +523,57 @@ client.on('interactionCreate', async interaction => {
     const ownerId = process.env.OWNER_ID;
 
     if (commandName === 'svatek') {
-        await interaction.deferReply();
-        const svatky = await getNamenstagInfo();
+    // === KONTROLA COOLDOWNU ===
+    const isBypassChannel = interaction.channel.id === svatekBypassChannelId;
 
-        if (!svatky) {
-            return interaction.editReply({ content: 'Bohužel se nepodařilo načíst informace o svátcích. Zkus to prosím později.' });
-        }
+    // Pokud nejsme v bypass kanálu, zkontrolujeme čas
+    if (!isBypassChannel) {
+        const now = Date.now();
+        const cooldownMilliseconds = SVATEK_COOLDOWN_MINUTES * 60 * 1000;
+        const timeSinceLastUse = now - lastSvatekTimestamp;
 
-        const today = new Date();
-        const formattedDate = `${today.getDate()}. ${today.getMonth() + 1}. ${today.getFullYear()}`;
-
-        const svatekEmbed = new EmbedBuilder()
-            .setColor('#ED4245') // Výrazná červená barva, jakou má Discord
-            .setTitle(`💐 Dnes je ${formattedDate} 🌹`)
-            .addFields(
-                { name: '🇨🇿 Česká republika', value: `\`\`\`${svatky.cz}\`\`\``, inline: true },
-                { name: '🇸🇰 Slovensko', value: `\`\`\`${svatky.sk}\`\`\``, inline: true }
-            )
-            .setFooter({ 
-                text: 'Přejeme vše nejlepší!', 
-                iconURL: client.user.displayAvatarURL() // Tímto získáme URL avataru bota
+        if (timeSinceLastUse < cooldownMilliseconds) {
+            const timeLeftSeconds = (cooldownMilliseconds - timeSinceLastUse) / 1000;
+            return interaction.reply({
+                content: `Tento příkaz může být globálně použit jen jednou za 5 minut. Zkus to znovu za **${timeLeftSeconds.toFixed(0)} sekund**.`,
+                flags: [MessageFlags.Ephemeral] // Neviditelná odpověď
             });
-
-        return interaction.editReply({ embeds: [svatekEmbed] });
+        }
     }
+    // === KONEC KONTROLY COOLDOWNU ===
+
+
+    // --- Zde pokračuje stávající kód, pokud cooldown prošel ---
+    await interaction.deferReply();
+    const svatky = await getNamenstagInfo();
+
+    if (!svatky) {
+        return interaction.editReply({ content: 'Bohužel se nepodařilo načíst informace o svátcích. Zkus to prosím později.' });
+    }
+
+    const timeZone = 'Europe/Prague';
+    const zonedDate = utcToZonedTime(new Date(), timeZone);
+    const formattedDate = format(zonedDate, 'd. M. yyyy');
+
+    const svatekEmbed = new EmbedBuilder()
+        .setColor('#ED4245')
+        .setTitle(`💐 Dnes je ${formattedDate} 🌹`)
+        .addFields(
+            { name: '🇨🇿 Česká republika', value: `\`\`\`${svatky.cz}\`\`\``, inline: true },
+            { name: '🇸🇰 Slovensko', value: `\`\`\`${svatky.sk}\`\`\``, inline: true }
+        )
+        .setFooter({
+            text: 'Přejeme vše nejlepší!',
+            iconURL: client.user.displayAvatarURL()
+        });
+        
+    // Pokud nejsme v bypass kanálu, po úspěšném provedení aktualizujeme časovač
+    if (!isBypassChannel) {
+        lastSvatekTimestamp = Date.now();
+    }
+
+    return interaction.editReply({ embeds: [svatekEmbed] });
+}
 
     if (commandName === 'chat') {
         const now = Date.now();
