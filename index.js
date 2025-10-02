@@ -261,7 +261,7 @@ async function analyzeImage(imageUrl) {
     return 'FILTERED';
 }
 
-async function getNamenstagInfoAlternative() {
+async function getNamenstagInfo() {
     try {
         // Dnes pro CZ a SK
         const czApiUrl = 'https://nameday.abalin.net/api/V1/today?country=cz';
