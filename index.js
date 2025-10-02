@@ -263,26 +263,22 @@ async function analyzeImage(imageUrl) {
 
 async function getNamenstagInfo() {
     try {
-        // 1. ZDROJ PRO ČESKO: svatkyapi.cz (má kompletní data, např. "Olívie a Oliver")
+        // 1. ZDROJ PRO ČESKO: svatkyapi.cz
         const czApiUrl = 'https://svatkyapi.cz/api/day';
 
-        // 2. ZDROJ PRO SLOVENSKO: abalin.net (spolehlivé a dobře zdokumentované API)
-        const skApiUrl = 'https://nameday.abalin.net/api/V2/today/cz'; // /cz nebo /sk je jedno, data pro SK tam budou vždy
+        // 2. ZDROJ PRO SLOVENSKO: abalin.net
+        const skApiUrl = 'https://nameday.abalin.net/api/V2/today/cz';
 
-        // User-Agent hlavička je důležitá pro svatkyapi.cz, pro jistotu ji dáme oběma
         const requestHeaders = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         };
 
         const [czResponse, skResponse] = await Promise.all([
             axios.get(czApiUrl, { headers: requestHeaders }),
-            axios.get(skApiUrl, { headers: requestHeaders }) // abalin.net ji nepotřebuje, ale nevadí mu
+            axios.get(skApiUrl, { headers: requestHeaders })
         ]);
 
-        // Zpracování odpovědi pro Česko (jméno je v 'name')
         const czName = czResponse.data?.name || 'Neznámý';
-        
-        // Zpracování odpovědi pro Slovensko (jméno je vnořené v 'data.sk')
         const skName = skResponse.data?.data?.sk || 'Neznámy';
 
         return { cz: czName, sk: skName };
@@ -535,7 +531,7 @@ client.on('interactionCreate', async interaction => {
 
     const svatekEmbed = new EmbedBuilder()
         .setColor('#2b2d31') // Tmavá barva, podobná Discordu
-        .setTitle(`💐 Dnes je ${formattedDate} 🌹`)
+        .setTitle(`🗓️ Dnes je ${formattedDate} 🌹`)
         .addFields(
             // Pole pro Česko
                 { name: '🇨🇿 Česká republika', value: `\`\`\`${svatky.cz}\`\`\``, inline: true },
