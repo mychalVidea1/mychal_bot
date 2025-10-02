@@ -263,22 +263,29 @@ async function analyzeImage(imageUrl) {
 
 async function getNamenstagInfo() {
     try {
-        // Dnes pro CZ a SK
-        const czApiUrl = 'https://nameday.abalin.net/api/V1/today?country=cz';
-        const skApiUrl = 'https://nameday.abalin.net/api/V1/today?country=sk';
+        // Přesně podle tvého posledního objevu.
+        // Uděláme jeden jediný, efektivní dotaz na českou časovou zónu.
+        const apiUrl = 'https://nameday.abalin.net/api/V2/today/cz';
 
-        const [czResponse, skResponse] = await Promise.all([
-            axios.get(czApiUrl),
-            axios.get(skApiUrl)
-        ]);
+        const response = await axios.get(apiUrl);
 
-        const czName = czResponse.data.nameday.cz || 'Neznámý';
-        const skName = skResponse.data.nameday.sk || 'Neznámy';
+        // Data, která chceme, jsou vnořená v response.data.data
+        const namedayData = response.data?.data;
+
+        // Z jedné odpovědi si vezmeme data pro Česko i Slovensko.
+        const czName = namedayData?.cz || 'Neznámý';
+        const skName = namedayData?.sk || 'Neznámy';
 
         return { cz: czName, sk: skName };
 
     } catch (error) {
-        console.error("Chyba při získávání informací o svátcích (alternativní API):", error.message);
+        if (error.response) {
+            console.error("Chyba při volání finálního abalin.net V2 API!");
+            console.error("Status:", error.response.status);
+            console.error("Data:", error.response.data);
+        } else {
+            console.error("Došlo k chybě při komunikaci s finálním abalin.net V2 API:", error.message);
+        }
         return null;
     }
 }
