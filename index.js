@@ -55,7 +55,7 @@ const userCooldowns = new Map();
 let lastLimitNotificationTimestamp = 0;
 
 const userMessageHistory = new Collection();
-const SPAM_MESSAGE_COUNT = 6;
+const SPAM_MESSAGE_COUNT = 5;
 const SPAM_MAX_MESSAGE_LENGTH = 4;
 const userImagePostHistory = new Map();
 const IMAGE_LIMIT = 2;
@@ -262,12 +262,18 @@ async function analyzeImage(imageUrl) {
 
 async function getNamenstagInfo() {
     try {
-        // 1. ZDROJ PRO ČESKO: svatkyapi.cz
-        const czApiUrl = 'https://svatkyapi.cz/api/day';
+        // Získáme unikátní časové razítko pro "cache busting"
+        const cacheBuster = Date.now();
 
-        // 2. ZDROJ PRO SLOVENSKO: abalin.net
-        const skApiUrl = 'https://nameday.abalin.net/api/V2/today/cz';
+        // 1. ZDROJ PRO ČESKO - s přidaným cache busterem
+        const czApiUrl = `https://svatkyapi.cz/api/day?_=${cacheBuster}`;
 
+        // 2. ZDROJ PRO SLOVENSKO - také s přidaným cache busterem pro jistotu
+        const skApiUrl = `https://nameday.abalin.net/api/V2/today/cz?_=${cacheBuster}`;
+
+        // Diagnostický log, abychom viděli, že se čas mění a že se funkce spouští
+        console.log(`[Svátek] Volám API s cache busterem: ${cacheBuster}`);
+        
         const requestHeaders = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         };
@@ -284,7 +290,7 @@ async function getNamenstagInfo() {
 
     } catch (error) {
         if (error.response) {
-            console.error("Chyba při volání finálních API!");
+            console.error("Chyba při volání finálních API s cache busterem!");
             console.error("Status:", error.response.status, "URL:", error.config.url);
             console.error("Data:", error.response.data);
         } else {
